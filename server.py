@@ -4,7 +4,8 @@ The React app calls these endpoints; this server calls Nessie (with the API
 key from .env) and returns JSON shaped for the screens.
 
 Run it with:  venv\\Scripts\\python.exe server.py
-(or click Run on this file in VS Code). It listens on http://localhost:8000.
+(or click Run on this file in VS Code). It listens on http://localhost:8000
+(or on $PORT when hosted, e.g. on Railway).
 Needs:  pip install fastapi uvicorn
 
 Everything except sign up / log in needs "Authorization: Bearer <token>".
@@ -45,7 +46,13 @@ Groups and shared goals (groups.py):
   POST   /api/goals/{id}/commit {share_amount}
   POST   /api/goals/{id}/contributions {amount, note}
   DELETE /api/contributions/{id}
+Notifications (notifications.py):
+  GET  /api/notifications                  -> {unread_count, items}
+  POST /api/notifications/seen
+AI insights (gemini.py, needs GEMINI_API_KEY in .env):
+  GET /api/me/insights?period=this_month   -> {available, insights: {headline, persona, insights, tips}}
 """
+import os
 from collections import defaultdict
 from datetime import date, timedelta
 
@@ -57,18 +64,29 @@ import bank
 import banking
 import db
 import friends
+import gemini
 import groups
 import nessie
+import notifications
 import simulate
 import statement
 
 app = FastAPI(title="finapp backend")
 
-# The Vite dev server (frontend) runs on port 8443.
+# Which websites may call this API: the deployed frontend on Railway plus local
+# development (the Vite dev server runs on port 8443). To allow another site,
+# set FRONTEND_ORIGINS in .env or Railway's variables (comma-separated).
+ALLOWED_ORIGINS = [
+    "https://finapp-poo.up.railway.app",
+    "http://localhost:8443",
+    "http://127.0.0.1:8443",
+] + [o.strip() for o in os.getenv("FRONTEND_ORIGINS", "").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8443", "http://127.0.0.1:8443"],
-    allow_methods=["GET", "POST", "DELETE"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -78,6 +96,7 @@ app.include_router(friends.router)
 app.include_router(groups.router)
 app.include_router(statement.router)
 app.include_router(simulate.router)
+app.include_router(notifications.router)
 
 def _period_range(period, today=None):
     """Return (start, end, previous_start, previous_end) as dates, end inclusive."""
@@ -181,9 +200,45 @@ def dashboard(period: str = "this_month", user: dict = Depends(bank.require_bank
     }
 
 
+def _insight_summary(d: dict) -> dict:
+    """The small, exact summary Gemini sees. No IDs, names of accounts or raw transaction lists."""
+    points = d["daily"]["points"]
+    peak = max(points, key=lambda p: p["amount"], default=None)
+    return {
+        "first_name": d["customer"]["first_name"],
+        "period": d["period"],
+        "total_spending": d["total"],
+        "previous_period_spending": d["previous_total"],
+        "change_vs_previous_pct": d["change_percent"],
+        "purchase_count": d["purchase_count"],
+        "available_balance": d["available_balance"],
+        "saved_into_group_goals": d["goal_savings"],
+        "spending_by_category": [
+            {"category": c["name"], "amount": c["amount"], "purchases": c["count"], "pct_of_spending": c["percent"]}
+            for c in d["categories"]
+        ],
+        "biggest_spending_" + d["daily"]["unit"]: {"start": peak["date"], "amount": peak["amount"]} if peak and peak["amount"] else None,
+    }
+
+
+@app.get("/api/me/insights")
+def insights(period: str = "this_month", user: dict = Depends(bank.require_bank_link)):
+    """Gemini's plain-English read of the dashboard numbers for this period."""
+    if not gemini.available():
+        return {"available": False, "reason": "Add GEMINI_API_KEY to .env to turn on AI insights."}
+    d = dashboard(period, user)
+    if not d["purchase_count"]:
+        return {"available": False, "reason": "No purchases in this period yet."}
+    result = gemini.explain(_insight_summary(d))
+    if result is None:
+        return {"available": False, "reason": "Couldn't reach Gemini right now. Try again in a minute."}
+    return {"available": True, "insights": result}
+
+
 if __name__ == "__main__":
     import uvicorn
 
     if auth.DEV_MODE:
         print("Demo login shortcut is ON (set FINAPP_DEV=0 to turn it off).")
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # Railway sets PORT and needs 0.0.0.0; locally this is still http://localhost:8000.
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))

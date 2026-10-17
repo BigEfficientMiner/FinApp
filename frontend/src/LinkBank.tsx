@@ -66,7 +66,59 @@ export function LinkBankForm({ onLinked }: { onLinked: () => void }) {
           {busy ? "Linking…" : "Link bank"}
         </button>
       </form>
+
+      <OpenBankAccount onLinked={onLinked} />
     </section>
+  );
+}
+
+const STYLES = [
+  { key: "student", title: "Student", body: "Part-time paychecks, rent, coffee and groceries. Checking + Savings." },
+  { key: "commuter", title: "Commuter", body: "Lots of rides and takeout on a starter credit card. Checking + Credit Card." },
+  { key: "professional", title: "Professional", body: "Salary, bigger bills, saving for a house. Checking, Savings + Credit Card." },
+];
+
+/** No bank customer ID? Open a brand-new bank profile in Nessie and link it. */
+function OpenBankAccount({ onLinked }: { onLinked: () => void }) {
+  const [style, setStyle] = useState("student");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function open() {
+    setBusy(true);
+    setError("");
+    try {
+      await api("POST", "/api/bank/create", { style });
+      onLinked();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 border-t border-[#edf0ef] pt-5">
+      <p className="text-sm font-bold">Don't have a customer ID?</p>
+      <p className="mt-1 text-xs text-[#697975]">Open a new Northstar bank account instead. We'll create it, link it, and fill in about two months of sample activity.</p>
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        {STYLES.map((s) => (
+          <button
+            className={`rounded-xl border p-3 text-left transition ${style === s.key ? "border-[#357866] bg-[#eef6f2]" : "border-[#d8e0dd] hover:bg-[#f7faf9]"}`}
+            key={s.key}
+            onClick={() => setStyle(s.key)}
+            type="button"
+          >
+            <span className="block text-xs font-bold">{s.title}</span>
+            <span className="mt-1 block text-[11px] leading-4 text-[#697975]">{s.body}</span>
+          </button>
+        ))}
+      </div>
+      {error && <div className="mt-3"><ErrorBox text={error} /></div>}
+      <button className={`${primaryBtn} mt-4`} disabled={busy} onClick={open} type="button">
+        {busy ? "Opening your account…" : "Open a new account"}
+      </button>
+    </div>
   );
 }
 
@@ -91,9 +143,30 @@ export default function AccountsPage({ linked, onChange }: { linked: boolean; on
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
 
+  const [building, setBuilding] = useState(false);
+
   useEffect(() => {
     if (!linked) return;
     api<BankSummary>("GET", "/api/bank").then(setBank).catch((e) => setError(e.message));
+  }, [linked]);
+
+  // A newly opened account fills in its history in the background: show that, then refresh.
+  useEffect(() => {
+    if (!linked) return;
+    let stop = false;
+    const check = () =>
+      api<{ status: string }>("GET", "/api/bank/history-status")
+        .then((r) => {
+          if (stop) return;
+          setBuilding(r.status === "building");
+          if (r.status === "building") setTimeout(check, 5000);
+          else api<BankSummary>("GET", "/api/bank").then(setBank).catch(() => {});
+        })
+        .catch(() => {});
+    check();
+    return () => {
+      stop = true;
+    };
   }, [linked]);
 
   async function unlink() {
@@ -118,6 +191,11 @@ export default function AccountsPage({ linked, onChange }: { linked: boolean; on
       ) : (
         <section className="panel max-w-[720px]">
           {error && <ErrorBox text={error} />}
+          {building && (
+            <p className="mb-4 rounded-xl bg-[#eef6f2] px-3 py-2.5 text-xs font-semibold text-[#276858]">
+              Setting up your account history… your dashboard fills in over the next minute or two.
+            </p>
+          )}
           {bank && (
             <>
               <div className="flex flex-wrap items-start justify-between gap-4">

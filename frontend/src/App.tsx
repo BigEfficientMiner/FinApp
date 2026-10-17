@@ -24,6 +24,10 @@ type Dashboard = {
   transactions: Purchase[];
 };
 
+type AiInsights = { headline: string; persona: string; insights: string[]; tips: string[] };
+type InsightsResponse = { available: boolean; reason?: string; insights?: AiInsights };
+type Notification = { id: string; kind: string; title: string; body: string; created_at: string; target: string; unread: boolean };
+
 const PERIODS = [
   { key: "this_month", label: "This month" },
   { key: "last_month", label: "Last month" },
@@ -171,15 +175,6 @@ const categoryStyles: Record<string, { color: string; icon: string; badge: strin
 };
 const styleFor = (category: string) => categoryStyles[category] ?? categoryStyles.Other;
 
-// Bank partner offer shown for the customer's top spending category.
-const offers: Record<string, { title: string; body: string }> = {
-  Dining: { title: "Enjoy 15% back at Juniper & Stone", body: "You dine out often, so we found something you’ll love. Earn up to $18 back on your next meal when you pay with your Northstar card." },
-  Groceries: { title: "Get 10% back at Greenleaf Grocer", body: "Groceries are one of your biggest categories. Earn up to $15 back on your next grocery run with your Northstar card." },
-  Shopping: { title: "Take 20% off at North & Loom", body: "You shop a lot, so here’s a deal on your next order. Save up to $25 when you pay with your Northstar card." },
-  Transport: { title: "Save $5 on your next 5 CityRide trips", body: "You ride often, so we partnered with CityRide. The discount applies automatically when you pay with your Northstar card." },
-  Other: { title: "Earn 5% back at Campus Books", body: "Earn up to $10 back on your next purchase when you pay with your Northstar card." },
-};
-
 const money = (n: number, cents = true) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 });
 const shortDate = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -253,8 +248,8 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
   const [activeNav, setActiveNav] = useState("Overview");
   const activeNavRef = useRef(activeNav);
   activeNavRef.current = activeNav;
-  const [offerVisible, setOfferVisible] = useState(true);
-  const [offerClaimed, setOfferClaimed] = useState(false);
+  const [ai, setAi] = useState<InsightsResponse | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState("");
@@ -270,11 +265,7 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
     setLoading(true);
     setError("");
     api<Dashboard>("GET", `/api/me/dashboard?period=${period}`)
-      .then((d) => {
-        setData(d);
-        setOfferVisible(true);
-        setOfferClaimed(false);
-      })
+      .then(setData)
       .catch((e) => setError(`Couldn't load your spending data (${e.message})`))
       .finally(() => setLoading(false));
     // Live: refresh quietly every few seconds while the dashboard is open.
@@ -284,6 +275,20 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
     }, 10000);
     return () => clearInterval(timer);
   }, [period, linked, me.bank_link?.nessie_customer_id]);
+
+  // Gemini insights: once per period (the server caches answers for the same numbers).
+  const loadInsights = useCallback(() => {
+    if (!linked) return;
+    setAiLoading(true);
+    api<InsightsResponse>("GET", `/api/me/insights?period=${period}`)
+      .then(setAi)
+      .catch((e) => setAi({ available: false, reason: e.message }))
+      .finally(() => setAiLoading(false));
+  }, [period, linked]);
+  useEffect(() => {
+    setAi(null);
+    loadInsights();
+  }, [loadInsights, me.bank_link?.nessie_customer_id]);
 
   // Coming back to the dashboard (e.g. after adding money to a goal): refresh right away.
   useEffect(() => {
@@ -298,7 +303,6 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
   const categories = data?.categories ?? [];
   const transactions = data?.transactions ?? [];
   const top = data?.top_category ?? null;
-  const offer = top ? offers[top.name] ?? offers.Other : null;
   const points = data?.daily.points ?? [];
   const peak = points.reduce((best, p, i) => (p.amount > (points[best]?.amount ?? 0) ? i : best), 0);
   const chartMax = Math.max(40, Math.ceil((points[peak]?.amount ?? 0) / 40) * 40);
@@ -323,13 +327,7 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
           </span>
         </div>
         <div className="flex items-center gap-2 sm:gap-4">
-          <button aria-label="Search" className="icon-button">
-            <Icon name="search" />
-          </button>
-          <button aria-label="Notifications" className="icon-button relative">
-            <Icon name="bell" />
-            <span className="absolute right-2 top-2 size-2 rounded-full border-2 border-white bg-[#ef6b4a]" />
-          </button>
+          <NotificationBell onOpenTarget={setActiveNav} />
           <div className="mx-1 hidden h-7 w-px bg-[#e3e8e6] sm:block" />
           <div className="flex items-center gap-2 rounded-full p-1 pr-2">
             <span className="grid size-9 place-items-center rounded-full bg-[#d9eadf] text-sm font-bold text-[#235749]">{initials}</span>
@@ -528,7 +526,9 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
                 <span className="mt-0.5 text-[#7650bd]"><Icon name="sparkles" size={17} /></span>
                 <p className="text-xs leading-5 text-[#5e5472]">
                   <strong className="text-[#30283f]">Smart insight:</strong>{" "}
-                  {points[peak]?.amount
+                  {ai?.available && ai.insights
+                    ? ai.insights.headline
+                    : points[peak]?.amount
                     ? `Your biggest spending ${data?.daily.unit === "week" ? "week started" : "day was"} ${longDate(points[peak].date)}, at ${money(points[peak].amount)}. You made ${data?.purchase_count} purchases ${periodLabel}.`
                     : `No purchases ${periodLabel} yet.`}
                 </p>
@@ -572,33 +572,7 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
             </article>
           </section>
 
-          {offerVisible && offer && (
-            <section className="relative mb-5 overflow-hidden rounded-[20px] bg-[#f0e8ff] p-5 sm:p-6">
-              <div className="absolute -bottom-20 -right-8 size-56 rounded-full border-[32px] border-[#9a6bff]/10" />
-              <button aria-label="Dismiss offer" className="absolute right-4 top-4 z-10 text-[#7c6b91] transition hover:text-[#382f43]" onClick={() => setOfferVisible(false)}>
-                <Icon name="close" size={18} />
-              </button>
-              <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center">
-                <div className="grid size-14 shrink-0 place-items-center rounded-2xl bg-[#7342bf] text-white shadow-lg shadow-[#7342bf]/20">
-                  <Icon name="tag" size={25} />
-                </div>
-                <div className="flex-1 pr-5">
-                  <div className="mb-1 flex flex-wrap items-center gap-2">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#6c499e]">Picked for your top category</span>
-                    <span className="rounded-full bg-white/70 px-2 py-1 text-[9px] font-bold text-[#6d548c]">Bank partner offer</span>
-                  </div>
-                  <h2 className="text-lg font-bold tracking-[-0.025em] text-[#32243f]">{offer.title}</h2>
-                  <p className="mt-1 max-w-2xl text-xs leading-5 text-[#766681]">{offer.body}</p>
-                </div>
-                <button
-                  className={`shrink-0 rounded-xl px-5 py-3 text-xs font-bold shadow-sm transition ${offerClaimed ? "bg-white text-[#5c3a87]" : "bg-[#3f265e] text-white hover:bg-[#2f1c47]"}`}
-                  onClick={() => setOfferClaimed(true)}
-                >
-                  {offerClaimed ? "Offer activated" : "Activate offer"}
-                </button>
-              </div>
-            </section>
-          )}
+          <AiInsightsPanel ai={ai} loading={aiLoading} onRefresh={loadInsights} />
 
           <section className="panel !p-0">
             <div className="panel-heading px-5 py-5 sm:px-6">
@@ -632,13 +606,179 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
           </section>
 
           <p className="mt-5 text-center text-[10px] leading-4 text-[#8c9995]">
-            Partner offers may earn Northstar a referral commission. Your transaction data is never shared with merchants.
+            AI insights are generated by Gemini from your spending totals and are for education, not financial advice.
           </p>
           </>
           )}
         </main>
       </div>
     </div>
+  );
+}
+
+const timeAgo = (iso: string) => {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+};
+
+const notificationIcon: Record<string, IconName> = {
+  friend_request: "users",
+  friend_accepted: "users",
+  group_invite: "flag",
+  group_activity: "flag",
+};
+
+function NotificationBell({ onOpenTarget }: { onOpenTarget: (target: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<Notification[]>([]);
+  const [unread, setUnread] = useState(0);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  const load = useCallback(() => {
+    api<{ unread_count: number; items: Notification[] }>("GET", "/api/notifications")
+      .then((r) => {
+        setItems(r.items);
+        setUnread(r.unread_count);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Check for new notifications every 15 seconds while the tab is visible.
+  useEffect(() => {
+    load();
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [load]);
+
+  // Close when clicking outside the panel.
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [open]);
+
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (next && unread > 0) {
+      setUnread(0);
+      api("POST", "/api/notifications/seen").catch(() => {});
+    }
+    if (!next) setItems((list) => list.map((i) => ({ ...i, unread: false })));
+  }
+
+  return (
+    <div className="relative" ref={boxRef}>
+      <button aria-expanded={open} aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`} className="icon-button relative" onClick={toggle}>
+        <Icon name="bell" />
+        {unread > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 grid min-w-[18px] place-items-center rounded-full border-2 border-white bg-[#ef6b4a] px-1 text-[9px] font-bold leading-[14px] text-white">
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-12 z-40 w-[340px] max-w-[calc(100vw-32px)] overflow-hidden rounded-2xl border border-[#e3e8e6] bg-white shadow-xl">
+          <div className="flex items-center justify-between border-b border-[#edf0ef] px-4 py-3">
+            <p className="text-sm font-bold">Notifications</p>
+            <button className="text-[11px] font-bold text-[#41675c]" onClick={load}>Refresh</button>
+          </div>
+          <div className="max-h-[420px] overflow-y-auto">
+            {items.length === 0 && <p className="px-4 py-8 text-center text-xs text-[#8a9893]">You're all caught up.</p>}
+            {items.map((n) => (
+              <button
+                className={`flex w-full gap-3 border-b border-[#f1f4f3] px-4 py-3 text-left transition hover:bg-[#f7faf9] ${n.unread ? "bg-[#f3f8f6]" : ""}`}
+                key={n.id}
+                onClick={() => {
+                  onOpenTarget(n.target);
+                  setOpen(false);
+                }}
+              >
+                <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-[#edf3f1] text-[#235749]">
+                  <Icon name={notificationIcon[n.kind] ?? "bell"} size={16} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-semibold leading-4 text-[#14211d]">{n.title}</span>
+                  <span className="mt-0.5 block text-[11px] text-[#7a8984]">
+                    {n.body} · {timeAgo(n.created_at)}
+                  </span>
+                </span>
+                {n.unread && <span className="mt-2 size-2 shrink-0 rounded-full bg-[#ef6b4a]" />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AiInsightsPanel({ ai, loading, onRefresh }: { ai: InsightsResponse | null; loading: boolean; onRefresh: () => void }) {
+  return (
+    <section className="relative mb-5 overflow-hidden rounded-[20px] bg-[#f0e8ff] p-5 sm:p-6">
+      <div className="absolute -bottom-20 -right-8 size-56 rounded-full border-[32px] border-[#9a6bff]/10" />
+      <div className="relative">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#7342bf] text-white shadow-lg shadow-[#7342bf]/20">
+              <Icon name="sparkles" size={20} />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#6c499e]">AI insights · Gemini</p>
+              {ai?.available && ai.insights ? (
+                <h2 className="text-lg font-bold tracking-[-0.025em] text-[#32243f]">{ai.insights.headline}</h2>
+              ) : (
+                <h2 className="text-lg font-bold tracking-[-0.025em] text-[#32243f]">{loading ? "Reading your spending…" : "Insights aren't available yet"}</h2>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {ai?.available && ai.insights && (
+              <span className="hidden rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-bold text-[#6d548c] sm:block">{ai.insights.persona}</span>
+            )}
+            <button className="rounded-lg bg-white/70 px-3 py-1.5 text-[11px] font-bold text-[#5c3a87] transition hover:bg-white disabled:opacity-50" disabled={loading} onClick={onRefresh}>
+              {loading ? "Thinking…" : "Refresh"}
+            </button>
+          </div>
+        </div>
+        {loading && !ai && (
+          <div className="space-y-2">
+            <div className="h-3 w-3/4 animate-pulse rounded bg-white/60" />
+            <div className="h-3 w-2/3 animate-pulse rounded bg-white/60" />
+          </div>
+        )}
+        {ai && !ai.available && !loading && <p className="text-xs text-[#766681]">{ai.reason}</p>}
+        {ai?.available && ai.insights && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ul className="space-y-2">
+              {ai.insights.insights.map((text, i) => (
+                <li className="flex gap-2 text-xs leading-5 text-[#4c3f5c]" key={i}>
+                  <span className="mt-2 size-1.5 shrink-0 rounded-full bg-[#9a6bff]" />
+                  {text}
+                </li>
+              ))}
+            </ul>
+            <div className="rounded-xl bg-white/70 p-3.5">
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[#6c499e]">Try this</p>
+              <ul className="space-y-1.5">
+                {ai.insights.tips.map((tip, i) => (
+                  <li className="text-xs leading-5 text-[#4c3f5c]" key={i}>{tip}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
