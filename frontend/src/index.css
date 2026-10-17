@@ -179,3 +179,19 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Printing the bank statement: hide the app chrome, keep just the page content. */
+@media print {
+  header,
+  aside {
+    display: none !important;
+  }
+  body,
+  main {
+    background: white !important;
+  }
+  .panel {
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+}

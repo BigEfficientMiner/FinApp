@@ -11,6 +11,13 @@ __pycache__/
 
 # Local app data (accounts, password hashes, friends, groups)
 app.db
+app.db.bak
+app.db.before-reset
+
+# Demo baseline (made by demo_setup.py; tied to your own Nessie key)
+demo_baseline.db
+demo_bank.json
+probe_results.json
 friends.db
 *.db-journal
 

@@ -13,16 +13,15 @@ What it sets up:
 Safe to run again: if the group already exists, nothing is changed.
 """
 import db
-from auth import DEMO_EMAIL_DOMAIN
 
 GROUP_NAME = "Spring Break Crew"
 GOAL_CREATED = "2026-09-15T15:00:00+00:00"
 
 
-def user_id(conn, first_name):
-    row = conn.execute("SELECT id FROM users WHERE email = ?", (f"{first_name}{DEMO_EMAIL_DOMAIN}",)).fetchone()
+def user_id(conn, username):
+    row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
     if row is None:
-        raise SystemExit(f"Demo user {first_name} not found. Run seed_users.py first.")
+        raise SystemExit(f"Demo user @{username} not found. Run seed_users.py first.")
     return row["id"]
 
 

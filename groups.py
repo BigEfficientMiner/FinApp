@@ -16,7 +16,10 @@ Flow:
   6. Every join, commitment and contribution goes into the group's activity feed.
 
 Money: amounts come in and go out as dollars, but are stored as whole cents.
-Contributions are recorded in the app; no money moves in Nessie (yet).
+Adding money to a goal is a real withdrawal from your linked bank account in
+Nessie (see banking.py), so it shows on your statement and lowers your balance.
+Undoing it takes that withdrawal back (Nessie can't delete withdrawals, so the
+app hides it), returning the money to your balance.
 """
 import math
 from datetime import date
@@ -24,7 +27,9 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+import banking
 import db
+import nessie
 from auth import current_user, public_user
 from friends import friend_ids
 
@@ -95,7 +100,7 @@ def goal_progress(conn, goal, viewer_id: int, today: date | None = None) -> dict
     """Everything the UI shows about one goal: totals, pace, and each member's status."""
     today = today or date.today()
     members = conn.execute(
-        "SELECT u.id, u.display_name FROM group_members m JOIN users u ON u.id = m.user_id "
+        "SELECT u.id, u.username, u.display_name FROM group_members m JOIN users u ON u.id = m.user_id "
         "WHERE m.group_id = ? ORDER BY m.joined_at",
         (goal["group_id"],),
     ).fetchall()
@@ -122,7 +127,7 @@ def goal_progress(conn, goal, viewer_id: int, today: date | None = None) -> dict
             expected = round(share * mine)
             status = "complete" if have >= share else "on_track" if have >= expected else "behind"
         rows.append({
-            "person": {"id": m["id"], "display_name": m["display_name"]},
+            "person": public_user(m),
             "share": dollars(share) if share else None,
             "saved": dollars(have),
             "expected_by_now": dollars(expected),
@@ -223,7 +228,7 @@ def my_groups(user: dict = Depends(current_user)):
         result = []
         for g in groups:
             members = conn.execute(
-                "SELECT u.id, u.display_name FROM group_members m JOIN users u ON u.id = m.user_id "
+                "SELECT u.id, u.username, u.display_name FROM group_members m JOIN users u ON u.id = m.user_id "
                 "WHERE m.group_id = ? ORDER BY m.joined_at", (g["id"],)
             ).fetchall()
             goals = [goal_progress(conn, row, me) for row in conn.execute(
@@ -237,7 +242,7 @@ def my_groups(user: dict = Depends(current_user)):
             })
 
         invites = conn.execute(
-            "SELECT i.id, i.created_at, g.id AS group_id, g.name, u.id AS inviter_id, u.display_name AS inviter_name, "
+            "SELECT i.id, i.created_at, g.id AS group_id, g.name, u.id AS inviter_id, u.username AS inviter_username, u.display_name AS inviter_name, "
             "(SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS member_count "
             "FROM group_invites i JOIN groups g ON g.id = i.group_id JOIN users u ON u.id = i.inviter_id "
             "WHERE i.invitee_id = ? ORDER BY i.created_at DESC",
@@ -249,7 +254,7 @@ def my_groups(user: dict = Depends(current_user)):
         "invites": [
             {"id": i["id"], "created_at": i["created_at"],
              "group": {"id": i["group_id"], "name": i["name"], "member_count": i["member_count"]},
-             "invited_by": {"id": i["inviter_id"], "display_name": i["inviter_name"]}}
+             "invited_by": {"id": i["inviter_id"], "username": i["inviter_username"], "display_name": i["inviter_name"]}}
             for i in invites
         ],
     }
@@ -286,12 +291,12 @@ def group_detail(group_id: int, user: dict = Depends(current_user)):
     with db.connect() as conn:
         group = _require_group_member(conn, group_id, me)
         members = conn.execute(
-            "SELECT u.id, u.display_name, m.joined_at FROM group_members m JOIN users u ON u.id = m.user_id "
+            "SELECT u.id, u.username, u.display_name, m.joined_at FROM group_members m JOIN users u ON u.id = m.user_id "
             "WHERE m.group_id = ? ORDER BY m.joined_at", (group_id,)
         ).fetchall()
         member_ids = {m["id"] for m in members}
         invites = conn.execute(
-            "SELECT i.id, i.inviter_id, u.id AS uid, u.display_name FROM group_invites i "
+            "SELECT i.id, i.inviter_id, u.id AS uid, u.username, u.display_name FROM group_invites i "
             "JOIN users u ON u.id = i.invitee_id WHERE i.group_id = ? ORDER BY i.created_at", (group_id,)
         ).fetchall()
         invited_ids = {i["uid"] for i in invites}
@@ -318,9 +323,9 @@ def group_detail(group_id: int, user: dict = Depends(current_user)):
         "name": group["name"],
         "owner_id": group["owner_id"],
         "created_at": group["created_at"],
-        "members": [{"id": m["id"], "display_name": m["display_name"], "joined_at": m["joined_at"],
+        "members": [{**public_user(m), "joined_at": m["joined_at"],
                      "is_owner": m["id"] == group["owner_id"]} for m in members],
-        "pending_invites": [{"id": i["id"], "person": {"id": i["uid"], "display_name": i["display_name"]},
+        "pending_invites": [{"id": i["id"], "person": {"id": i["uid"], "username": i["username"], "display_name": i["display_name"]},
                              "can_cancel": i["inviter_id"] == me} for i in invites],
         "invitable_friends": invitable,
         "goals": goals,
@@ -462,27 +467,67 @@ def commit_to_goal(goal_id: int, body: CommitIn, user: dict = Depends(current_us
     return {"share": dollars(share)}
 
 
+def _from_account(user: dict) -> dict:
+    """The linked bank's spending account, with its current balance (see banking.py)."""
+    if not user["bank_link"]:
+        raise HTTPException(409, "Link your bank first so you can move money into this goal")
+    try:
+        ledger = banking.customer_ledger(user["bank_link"]["nessie_customer_id"])
+    except nessie.NessieError as e:
+        raise HTTPException(502, f"Couldn't reach the bank: {e}")
+    account = banking.spending_account(ledger["accounts"])
+    if account is None:
+        raise HTTPException(409, "Your bank profile has no accounts to move money from")
+    return account
+
+
+@router.get("/me/funding-account")
+def funding_account(user: dict = Depends(current_user)):
+    """Which account goal savings come out of, and how much is in it."""
+    if not user["bank_link"]:
+        return {"linked": False}
+    a = _from_account(user)
+    return {"linked": True, "id": a["id"], "nickname": a["nickname"], "type": a["type"], "balance": a["balance"]}
+
+
 @router.post("/goals/{goal_id}/contributions", status_code=201)
 def add_contribution(goal_id: int, body: ContributionIn, user: dict = Depends(current_user)):
+    """Move money toward a goal: a real withdrawal from your bank account in Nessie,
+    so it shows on your statement and your balance goes down."""
     amount = to_cents(body.amount)
     with db.connect() as conn:
         goal = _goal_for_member(conn, goal_id, user["id"])
         if not conn.execute(
             "SELECT 1 FROM goal_commitments WHERE goal_id = ? AND user_id = ?", (goal_id, user["id"])
         ).fetchone():
-            raise HTTPException(409, "Commit to this goal before logging savings")
+            raise HTTPException(409, "Commit to this goal before adding money")
+        group_name = conn.execute("SELECT name FROM groups WHERE id = ?", (goal["group_id"],)).fetchone()["name"]
+
+    account = _from_account(user)
+    if account["type"] != "Credit Card" and round(account["balance"] * 100) < amount:
+        raise HTTPException(409, f"Not enough money in {account['nickname']}: the balance is ${account['balance']:,.2f}")
+
+    description = f"Saved for “{goal['title']}” · {group_name}"
+    try:
+        nessie_id = banking.withdraw(account["id"], amount, description, user_id=user["id"], source="contribution")
+    except nessie.NessieError as e:
+        raise HTTPException(502, f"The bank couldn't move the money: {e}")
+
+    with db.connect() as conn:
         cid = conn.execute(
-            "INSERT INTO contributions (goal_id, user_id, amount_cents, note, created_at) VALUES (?, ?, ?, ?, ?)",
-            (goal_id, user["id"], amount, body.note.strip()[:120], db.now()),
+            "INSERT INTO contributions (goal_id, user_id, amount_cents, note, created_at, nessie_type, nessie_id, account_id) "
+            "VALUES (?, ?, ?, ?, ?, 'withdrawals', ?, ?)",
+            (goal_id, user["id"], amount, body.note.strip()[:120], db.now(), nessie_id, account["id"]),
         ).lastrowid
         _log(conn, goal["group_id"], user["id"], "contribution",
-             f"{user['display_name']} saved ${dollars(amount):,.2f} toward “{goal['title']}”")
-    return {"id": cid}
+             f"{user['display_name']} moved ${dollars(amount):,.2f} into “{goal['title']}”")
+    return {"id": cid, "from_account": account["nickname"],
+            "new_balance": round(account["balance"] - amount / 100, 2), "nessie_id": nessie_id}
 
 
 @router.delete("/contributions/{contribution_id}")
 def undo_contribution(contribution_id: int, user: dict = Depends(current_user)):
-    """Remove one of your own contributions (for mistakes)."""
+    """Undo one of your own contributions. The money goes back to your bank account."""
     with db.connect() as conn:
         row = conn.execute(
             "SELECT c.*, g.group_id, g.title FROM contributions c JOIN goals g ON g.id = c.goal_id WHERE c.id = ?",
@@ -490,7 +535,16 @@ def undo_contribution(contribution_id: int, user: dict = Depends(current_user)):
         ).fetchone()
         if row is None or row["user_id"] != user["id"]:
             raise HTTPException(404, "Contribution not found")
+
+    how = "removed"
+    if row["nessie_id"]:
+        try:
+            how = banking.remove(row["nessie_type"], row["nessie_id"], reason="contribution undone")
+        except nessie.NessieError as e:
+            raise HTTPException(502, f"The bank couldn't return the money: {e}")
+
+    with db.connect() as conn:
         conn.execute("DELETE FROM contributions WHERE id = ?", (contribution_id,))
         _log(conn, row["group_id"], user["id"], "contribution_removed",
-             f"{user['display_name']} removed a ${dollars(row['amount_cents']):,.2f} entry from “{row['title']}”")
-    return {"status": "removed"}
+             f"{user['display_name']} took back ${dollars(row['amount_cents']):,.2f} from “{row['title']}”")
+    return {"status": how}

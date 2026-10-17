@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, getToken, setToken, setUnauthorizedHandler, type Me } from "./api";
 import Auth from "./Auth";
 import Friends, { initials as initialsOf } from "./Friends";
 import Groups from "./Groups";
+import Transactions from "./Transactions";
 import AccountsPage, { LinkBankForm } from "./LinkBank";
 
 type Customer = { id: string; first_name: string; last_name: string };
@@ -15,6 +16,8 @@ type Dashboard = {
   previous_total: number;
   change_percent: number | null;
   purchase_count: number;
+  available_balance: number;
+  goal_savings: number;
   top_category: CategoryTotal | null;
   categories: CategoryTotal[];
   daily: { unit: "day" | "week"; points: { date: string; amount: number }[] };
@@ -248,6 +251,8 @@ function App() {
 function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; onMeChanged: () => void }) {
   const [period, setPeriod] = useState("this_month");
   const [activeNav, setActiveNav] = useState("Overview");
+  const activeNavRef = useRef(activeNav);
+  activeNavRef.current = activeNav;
   const [offerVisible, setOfferVisible] = useState(true);
   const [offerClaimed, setOfferClaimed] = useState(false);
 
@@ -272,7 +277,20 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
       })
       .catch((e) => setError(`Couldn't load your spending data (${e.message})`))
       .finally(() => setLoading(false));
+    // Live: refresh quietly every few seconds while the dashboard is open.
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible" || activeNavRef.current !== "Overview") return;
+      api<Dashboard>("GET", `/api/me/dashboard?period=${period}`).then(setData).catch(() => {});
+    }, 10000);
+    return () => clearInterval(timer);
   }, [period, linked, me.bank_link?.nessie_customer_id]);
+
+  // Coming back to the dashboard (e.g. after adding money to a goal): refresh right away.
+  useEffect(() => {
+    if (activeNav === "Overview" && linked) {
+      api<Dashboard>("GET", `/api/me/dashboard?period=${period}`).then(setData).catch(() => {});
+    }
+  }, [activeNav]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const firstName = me.display_name.split(" ")[0] || "there";
   const initials = initialsOf(me.display_name) || "··";
@@ -315,7 +333,10 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
           <div className="mx-1 hidden h-7 w-px bg-[#e3e8e6] sm:block" />
           <div className="flex items-center gap-2 rounded-full p-1 pr-2">
             <span className="grid size-9 place-items-center rounded-full bg-[#d9eadf] text-sm font-bold text-[#235749]">{initials}</span>
-            <span className="hidden text-sm font-semibold sm:block">{me.display_name}</span>
+            <span className="hidden leading-tight sm:block">
+              <span className="block text-sm font-semibold">{me.display_name}</span>
+              <span className="block text-[11px] text-[#8a9893]">@{me.username}</span>
+            </span>
           </div>
           <button className="rounded-lg border border-[#d8e0dd] px-3 py-2 text-[11px] font-bold text-[#31433e] transition hover:bg-[#f3f6f5]" onClick={onLogout}>
             Log out
@@ -332,7 +353,6 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
               ["Insights", "insights"],
               ["Friends", "users"],
               ["Groups", "flag"],
-              ["Rewards", "gift"],
               ["Accounts", "wallet"],
             ].map(([label, icon]) => (
               <button
@@ -342,7 +362,6 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
               >
                 <Icon name={icon as IconName} size={19} />
                 <span>{label}</span>
-                {label === "Rewards" && <span className="ml-auto hidden rounded-full bg-[#daf2e8] px-2 py-0.5 text-[10px] font-bold text-[#146d57] lg:block">3</span>}
               </button>
             ))}
           </nav>
@@ -364,19 +383,21 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
 
         <main className="w-full min-w-0 px-5 pb-24 pt-7 sm:px-7 lg:px-10 lg:pb-10 lg:pt-10">
           {activeNav === "Friends" ? (
-            <Friends />
+            <Friends myUsername={me.username} />
           ) : activeNav === "Groups" ? (
             <Groups meId={me.id} />
           ) : activeNav === "Accounts" ? (
-            <AccountsPage displayName={me.display_name} linked={linked} onChange={onMeChanged} />
+            <AccountsPage linked={linked} onChange={onMeChanged} />
           ) : !linked ? (
             <>
               <div className="mb-7">
                 <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">Welcome, {firstName}</h1>
                 <p className="mt-1 text-sm text-[#697975]">One more step: link your bank to see your spending. You can add friends right away.</p>
               </div>
-              <LinkBankForm displayName={me.display_name} onLinked={onMeChanged} />
+              <LinkBankForm onLinked={onMeChanged} />
             </>
+          ) : activeNav === "Transactions" ? (
+            <Transactions />
           ) : (
           <>
           <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -457,14 +478,14 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
               <div className="absolute -right-8 -top-10 size-32 rounded-full border-[18px] border-white/5" />
               <div className="relative flex items-start justify-between">
                 <div>
-                  <p className="eyebrow !text-[#a9c5bc]">Rewards earned</p>
-                  <p className="metric-number">$48.20</p>
+                  <p className="eyebrow !text-[#a9c5bc]">Available balance</p>
+                  <p className="metric-number">{money(data?.available_balance ?? 0)}</p>
                 </div>
-                <span className="metric-icon bg-white/10 text-[#dbf4e9]"><Icon name="gift" size={18} /></span>
+                <span className="metric-icon bg-white/10 text-[#dbf4e9]"><Icon name="wallet" size={18} /></span>
               </div>
               <div className="relative mt-5 flex items-center gap-2 text-xs text-[#bad0c8]">
-                <span className="font-bold text-[#d7f68e]">+$12.40</span>
-                <span>from partner offers</span>
+                <span className="font-bold text-[#d7f68e]">{money(data?.goal_savings ?? 0)}</span>
+                <span>moved into group goals</span>
               </div>
             </article>
           </section>
@@ -585,7 +606,7 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
                 <p className="panel-title">Recent purchases</p>
                 <p className="panel-subtitle">Your latest card activity</p>
               </div>
-              <button className="flex items-center gap-1 text-xs font-bold text-[#41675c]">View all <Icon name="chevron" size={14} /></button>
+              <button className="flex items-center gap-1 text-xs font-bold text-[#41675c]" onClick={() => setActiveNav("Transactions")}>View all <Icon name="chevron" size={14} /></button>
             </div>
             <div className="overflow-x-auto">
               <div className="min-w-[580px]">

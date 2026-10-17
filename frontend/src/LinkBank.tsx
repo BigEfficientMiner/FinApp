@@ -21,115 +21,51 @@ function Field({ name, title, value, onChange, ...rest }: FieldProps) {
 }
 
 /** Shown when the logged-in user has no bank linked yet. */
-export function LinkBankForm({ onLinked, displayName }: { onLinked: () => void; displayName: string }) {
-  const [mode, setMode] = useState<"existing" | "new">("existing");
+export function LinkBankForm({ onLinked }: { onLinked: () => void }) {
+  const [customerId, setCustomerId] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const [customerId, setCustomerId] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [zip, setZip] = useState("");
-
-  const [first, setFirst] = useState(displayName.split(" ")[0] ?? "");
-  const [last, setLast] = useState(displayName.split(" ").slice(1).join(" "));
-  const [streetNumber, setStreetNumber] = useState("");
-  const [streetName, setStreetName] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
-  const [newZip, setNewZip] = useState("");
-
-  async function run(request: () => Promise<unknown>) {
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
     setBusy(true);
     setError("");
     try {
-      await request();
+      await api("POST", "/api/bank/link", { nessie_customer_id: customerId });
       onLinked();
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (err) {
+      setError((err as Error).message);
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <section className="panel mx-auto max-w-[640px]">
+    <section className="panel mx-auto max-w-[560px]">
       <div className="mb-1 grid size-11 place-items-center rounded-2xl bg-[#e7f1ed] text-[#276858]">
         <svg aria-hidden="true" fill="none" height="22" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="22">
           <path d="m3 10 9-6 9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18" />
         </svg>
       </div>
       <h2 className="mt-3 text-[22px] font-bold tracking-[-0.035em]">Link your bank</h2>
-      <p className="mt-1 text-sm text-[#697975]">Connect your bank profile so we can show your spending. Your friends never see your bank details.</p>
+      <p className="mt-1 text-sm text-[#697975]">Enter your bank customer ID to connect your bank profile. Your friends never see your bank details.</p>
 
-      <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl bg-[#eef3f1] p-1" role="tablist">
-        {(["existing", "new"] as const).map((m) => (
-          <button
-            aria-selected={mode === m}
-            className={`rounded-lg py-2 text-xs font-bold transition ${mode === m ? "bg-white text-[#14211d] shadow-sm" : "text-[#587068]"}`}
-            key={m}
-            onClick={() => {
-              setMode(m);
-              setError("");
-            }}
-            role="tab"
-            type="button"
-          >
-            {m === "existing" ? "I have a bank profile" : "Create a new one"}
-          </button>
-        ))}
-      </div>
-
-      {mode === "existing" ? (
-        <form
-          className="mt-5 space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            run(() => api("POST", "/api/bank/link", { nessie_customer_id: customerId, last_name: lastName, zip }));
-          }}
-        >
-          <Field name="customer_id" onChange={setCustomerId} placeholder="e.g. c5b9f2b6-8a6d-…" title="Bank customer ID" value={customerId} />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field autoComplete="family-name" name="last_name" onChange={setLastName} title="Last name on the account" value={lastName} />
-            <Field autoComplete="postal-code" inputMode="numeric" name="zip" onChange={setZip} title="ZIP code" value={zip} />
-          </div>
-          <p className="text-[11px] text-[#8a9893]">We check your last name and ZIP against the bank's records to confirm the profile is yours.</p>
-          {error && <ErrorBox text={error} />}
-          <button className={primaryBtn} disabled={busy} type="submit">
-            {busy ? "Linking…" : "Link bank"}
-          </button>
-        </form>
-      ) : (
-        <form
-          className="mt-5 space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            run(() =>
-              api("POST", "/api/bank/create", {
-                first_name: first, last_name: last, street_number: streetNumber, street_name: streetName, city, state, zip: newZip,
-              }),
-            );
-          }}
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field autoComplete="given-name" name="first_name" onChange={setFirst} title="First name" value={first} />
-            <Field autoComplete="family-name" name="last_name" onChange={setLast} title="Last name" value={last} />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-[120px_1fr]">
-            <Field name="street_number" onChange={setStreetNumber} title="Street no." value={streetNumber} />
-            <Field name="street_name" onChange={setStreetName} title="Street name" value={streetName} />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-[1fr_90px_120px]">
-            <Field autoComplete="address-level2" name="city" onChange={setCity} title="City" value={city} />
-            <Field autoComplete="address-level1" maxLength={2} name="state" onChange={setState} placeholder="FL" title="State" value={state} />
-            <Field autoComplete="postal-code" inputMode="numeric" name="zip" onChange={setNewZip} title="ZIP" value={newZip} />
-          </div>
-          <p className="text-[11px] text-[#8a9893]">This creates a new profile at the bank with an empty checking account, then links it to you.</p>
-          {error && <ErrorBox text={error} />}
-          <button className={primaryBtn} disabled={busy} type="submit">
-            {busy ? "Creating…" : "Create and link"}
-          </button>
-        </form>
-      )}
+      <form className="mt-5 space-y-4" onSubmit={submit}>
+        <Field
+          autoCapitalize="none"
+          name="customer_id"
+          onChange={setCustomerId}
+          placeholder="e.g. c5b9f2b6-8a6d-4afa-80bd-…"
+          spellCheck={false}
+          title="Bank customer ID"
+          value={customerId}
+        />
+        <p className="text-[11px] text-[#8a9893]">Each bank profile can only be linked to one app profile. Keep your ID private, like an account number.</p>
+        {error && <ErrorBox text={error} />}
+        <button className={primaryBtn} disabled={busy} type="submit">
+          {busy ? "Linking…" : "Link bank"}
+        </button>
+      </form>
     </section>
   );
 }
@@ -150,7 +86,7 @@ type BankSummary = {
 };
 
 /** The Accounts page: your linked bank, or the form to link one. */
-export default function AccountsPage({ linked, displayName, onChange }: { linked: boolean; displayName: string; onChange: () => void }) {
+export default function AccountsPage({ linked, onChange }: { linked: boolean; onChange: () => void }) {
   const [bank, setBank] = useState<BankSummary | null>(null);
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
@@ -178,7 +114,7 @@ export default function AccountsPage({ linked, displayName, onChange }: { linked
         <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">Your bank</h1>
       </div>
       {!linked ? (
-        <LinkBankForm displayName={displayName} onLinked={onChange} />
+        <LinkBankForm onLinked={onChange} />
       ) : (
         <section className="panel max-w-[720px]">
           {error && <ErrorBox text={error} />}

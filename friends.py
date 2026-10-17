@@ -1,4 +1,7 @@
-"""Friends between app users: find people, send/accept/decline requests, list friends.
+"""Friends between app users: add by username, accept/decline requests, list friends.
+
+You add a friend by typing their exact username. There is no list or search
+of everyone using the app, so people can only find you if you share your username.
 
 Friendships are stored in app.db (see db.py) and point at app user IDs,
 so they don't depend on anyone's bank link.
@@ -15,13 +18,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 import db
-from auth import current_user, public_user
+from auth import current_user, normalize_username, public_user
 
 router = APIRouter(prefix="/api")
 
 
 class FriendRequestIn(BaseModel):
-    to_user_id: int
+    username: str
 
 
 def _row_for_pair(conn, a, b):
@@ -42,8 +45,8 @@ def friend_ids(conn, user_id: int) -> set:
 
 
 @router.get("/friends")
-def friends_overview(q: str = "", user: dict = Depends(current_user)):
-    """Friends, incoming and outgoing requests, and people you could add (filtered by q)."""
+def friends_overview(user: dict = Depends(current_user)):
+    """Your friends and your incoming and outgoing requests."""
     me = user["id"]
     with db.connect() as conn:
         users = {r["id"]: r for r in conn.execute("SELECT * FROM users").fetchall()}
@@ -51,10 +54,9 @@ def friends_overview(q: str = "", user: dict = Depends(current_user)):
             "SELECT * FROM friendships WHERE requester_id = ? OR addressee_id = ?", (me, me)
         ).fetchall()
 
-    friends, incoming, outgoing, connected = [], [], [], {me}
+    friends, incoming, outgoing = [], [], []
     for r in rows:
         other_id = r["addressee_id"] if r["requester_id"] == me else r["requester_id"]
-        connected.add(other_id)
         if other_id not in users:
             continue
         entry = {"request_id": r["id"], "person": public_user(users[other_id]),
@@ -66,44 +68,42 @@ def friends_overview(q: str = "", user: dict = Depends(current_user)):
         else:
             outgoing.append(entry)
 
-    # Search by name, or by exact email (emails are never shown to other users).
-    query = q.strip().lower()
-    suggestions = [
-        public_user(u) for uid, u in users.items()
-        if uid not in connected
-        and (not query or query in u["display_name"].lower() or query == u["email"].lower())
-    ]
-
     by_name = lambda e: e["person"]["display_name"].lower()
     return {
         "friends": sorted(friends, key=by_name),
         "incoming": sorted(incoming, key=by_name),
         "outgoing": sorted(outgoing, key=by_name),
-        "suggestions": sorted(suggestions, key=lambda p: p["display_name"].lower()),
     }
 
 
 @router.post("/friend-requests", status_code=201)
 def send_request(body: FriendRequestIn, user: dict = Depends(current_user)):
-    me, other = user["id"], body.to_user_id
-    if other == me:
-        raise HTTPException(400, "You can't add yourself as a friend")
+    """Send a friend request to someone by their exact username."""
+    me = user["id"]
+    username = normalize_username(body.username)
+    if not username:
+        raise HTTPException(400, "Enter a username")
 
     with db.connect() as conn:
-        if not conn.execute("SELECT 1 FROM users WHERE id = ?", (other,)).fetchone():
-            raise HTTPException(404, "That person doesn't exist")
+        target = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        if target is None:
+            raise HTTPException(404, f"No one has the username @{username}. Check the spelling.")
+        other = target["id"]
+        if other == me:
+            raise HTTPException(400, "That's your own username")
+        person = public_user(target)
         existing = _row_for_pair(conn, me, other)
         if existing:
             if existing["status"] == "accepted":
-                raise HTTPException(409, "You're already friends")
+                raise HTTPException(409, f"You and @{username} are already friends")
             if existing["requester_id"] == me:
-                raise HTTPException(409, "Friend request already sent")
+                raise HTTPException(409, f"You already sent @{username} a request")
             # They already asked you, so sending one back accepts theirs.
             conn.execute(
                 "UPDATE friendships SET status = 'accepted', responded_at = ? WHERE id = ?",
                 (db.now(), existing["id"]),
             )
-            return {"request_id": existing["id"], "status": "accepted"}
+            return {"request_id": existing["id"], "status": "accepted", "person": person}
 
         low, high = sorted((me, other))
         cur = conn.execute(
@@ -111,7 +111,7 @@ def send_request(body: FriendRequestIn, user: dict = Depends(current_user)):
             "VALUES (?, ?, 'pending', ?, ?, ?)",
             (me, other, db.now(), low, high),
         )
-        return {"request_id": cur.lastrowid, "status": "pending"}
+        return {"request_id": cur.lastrowid, "status": "pending", "person": person}
 
 
 def _get_request(conn, request_id):

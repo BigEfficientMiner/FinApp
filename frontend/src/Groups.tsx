@@ -3,7 +3,7 @@ import { api } from "./api";
 import { initials } from "./Friends";
 
 // ---------- Types (match groups.py) ----------
-type Person = { id: number; display_name: string };
+type Person = { id: number; username: string; display_name: string };
 type Status = "on_track" | "behind" | "complete" | "not_committed" | "missed";
 type MemberProgress = { person: Person; share: number | null; saved: number; expected_by_now: number; percent: number; status: Status };
 type Goal = {
@@ -31,6 +31,7 @@ type GroupSummary = {
   goals: Pick<Goal, "id" | "title" | "target" | "total_saved" | "percent" | "status" | "days_left" | "my_share">[];
 };
 type Invite = { id: number; created_at: string; group: { id: number; name: string; member_count: number }; invited_by: Person };
+type Funding = { linked: boolean; id?: string; nickname?: string; type?: string; balance: number };
 type GroupDetail = {
   id: number;
   name: string;
@@ -118,12 +119,12 @@ type Msg = { kind: "ok" | "error"; text: string } | null;
 function useAction(reload: () => void) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Msg>(null);
-  const run = async (fn: () => Promise<unknown>, success: string) => {
+  const run = async (fn: () => Promise<any>, success: string | ((result: any) => string)) => {
     setBusy(true);
     setMessage(null);
     try {
-      await fn();
-      setMessage({ kind: "ok", text: success });
+      const result = await fn();
+      setMessage({ kind: "ok", text: typeof success === "string" ? success : success(result) });
       reload();
       return true;
     } catch (e) {
@@ -205,7 +206,7 @@ function GroupList({ onOpen }: { onOpen: (id: number) => void }) {
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-bold">{inv.group.name}</p>
                   <p className="text-[10px] text-[#8a9893]">
-                    {inv.invited_by.display_name} invited you · {inv.group.member_count} {inv.group.member_count === 1 ? "member" : "members"}
+                    {inv.invited_by.display_name} (@{inv.invited_by.username}) invited you · {inv.group.member_count} {inv.group.member_count === 1 ? "member" : "members"}
                   </p>
                 </div>
                 <button className={secondaryBtn} disabled={busy} onClick={() => run(() => api("POST", `/api/group-invites/${inv.id}/decline`), `Declined the invite to ${inv.group.name}.`)}>
@@ -237,7 +238,7 @@ function GroupList({ onOpen }: { onOpen: (id: number) => void }) {
             </label>
             <p className={`${fieldLabel} mt-4`}>Invite friends</p>
             {friends.length === 0 ? (
-              <p className="text-xs text-[#8a9893]">You don't have any friends added yet. Add some on the Friends page, or invite them later.</p>
+              <p className="text-xs text-[#8a9893]">You don't have any friends added yet. Add them by username on the Friends page, or invite them later.</p>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {friends.map((f) => {
@@ -318,13 +319,23 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
   const [showNewGoal, setShowNewGoal] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
 
+  const [funding, setFunding] = useState<Funding | null>(null);
+
   const load = useCallback(() => {
     api<GroupDetail>("GET", `/api/groups/${groupId}`)
       .then(setG)
       .catch((e) => setMessage({ kind: "error", text: e.message }));
+    api<Funding>("GET", "/api/me/funding-account").then(setFunding).catch(() => setFunding(null));
   }, [groupId]);
   const { busy, message, setMessage, run } = useAction(load);
-  useEffect(load, [load]);
+  useEffect(() => {
+    load();
+    // Live: pick up friends' savings and balance changes without a refresh.
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [load]);
 
   if (!g)
     return (
@@ -376,6 +387,7 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
               busy={busy}
               canDelete={goal.created_by === meId || isOwner}
               contributions={g.my_contributions.filter((c) => c.goal_id === goal.id)}
+              funding={funding}
               goal={goal}
               key={goal.id}
               meId={meId}
@@ -396,7 +408,9 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
                       {m.display_name}
                       {m.id === meId && <span className="font-normal text-[#8a9893]"> (you)</span>}
                     </p>
-                    <p className="text-[10px] text-[#8a9893]">{m.is_owner ? "Owner" : `Joined ${when(m.joined_at)}`}</p>
+                    <p className="text-[10px] text-[#8a9893]">
+                      @{m.username} · {m.is_owner ? "Owner" : `Joined ${when(m.joined_at)}`}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -405,7 +419,7 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
                   <Avatar person={i.person} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-bold">{i.person.display_name}</p>
-                    <p className="text-[10px] text-[#8a9893]">Invited, hasn't joined yet</p>
+                    <p className="text-[10px] text-[#8a9893]">@{i.person.username} · Invited, hasn't joined yet</p>
                   </div>
                   {i.can_cancel && (
                     <button className={quietBtn} disabled={busy} onClick={() => run(() => api("POST", `/api/group-invites/${i.id}/decline`), `Cancelled the invite to ${i.person.display_name}.`)}>
@@ -434,7 +448,7 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
                     <option value="">Choose a friend…</option>
                     {g.invitable_friends.map((f) => (
                       <option key={f.id} value={f.id}>
-                        {f.display_name}
+                        {f.display_name} (@{f.username})
                       </option>
                     ))}
                   </select>
@@ -547,6 +561,7 @@ function GoalCard({
   meId,
   canDelete,
   contributions,
+  funding,
   busy,
   run,
 }: {
@@ -554,8 +569,9 @@ function GoalCard({
   meId: number;
   canDelete: boolean;
   contributions: GroupDetail["my_contributions"];
+  funding: Funding | null;
   busy: boolean;
-  run: (fn: () => Promise<unknown>, success: string) => Promise<boolean>;
+  run: (fn: () => Promise<any>, success: string | ((result: any) => string)) => Promise<boolean>;
 }) {
   const [share, setShare] = useState(String(goal.my_share ?? goal.suggested_share));
   const [editingShare, setEditingShare] = useState(false);
@@ -677,7 +693,8 @@ function GoalCard({
               e.preventDefault();
               const ok = await run(
                 () => api("POST", `/api/goals/${goal.id}/contributions`, { amount: Number(amount), note }),
-                `Logged ${money(Number(amount))} toward ${goal.title}.`,
+                (r: { from_account: string; new_balance: number }) =>
+                  `Moved ${money(Number(amount))} from ${r.from_account} into ${goal.title}. ${r.from_account} balance is now ${money(r.new_balance)}.`,
               );
               if (ok) {
                 setAmount("");
@@ -686,8 +703,19 @@ function GoalCard({
             }}
           >
             <div className="min-w-[160px] flex-1">
-              <p className="text-xs font-bold">Log what you've saved</p>
+              <p className="text-xs font-bold">Add money to this goal</p>
               <p className="text-[11px] text-[#697975]">
+                {funding?.linked ? (
+                  <>
+                    From <strong>{funding.nickname}</strong> · balance {money(funding.balance)}
+                    <br />
+                  </>
+                ) : (
+                  <>
+                    Link your bank on the Accounts page to move money.
+                    <br />
+                  </>
+                )}
                 Your share: {money(goal.my_share!)} ·{" "}
                 <button className="font-bold text-[#41675c] hover:underline" onClick={() => setEditingShare(true)} type="button">
                   change
@@ -702,8 +730,8 @@ function GoalCard({
               <span className={fieldLabel}>Note (optional)</span>
               <input className={input} maxLength={120} onChange={(e) => setNote(e.target.value)} placeholder="Skipped takeout" value={note} />
             </label>
-            <button className={primaryBtn} disabled={busy} type="submit">
-              Log savings
+            <button className={primaryBtn} disabled={busy || !funding?.linked} type="submit">
+              Add money
             </button>
           </form>
         )}
@@ -716,7 +744,7 @@ function GoalCard({
                 <span>
                   <strong>{money(c.amount)}</strong> <span className="text-[#8a9893]">{c.note && `· ${c.note} `}· {when(c.created_at)}</span>
                 </span>
-                <button className={quietBtn} disabled={busy} onClick={() => run(() => api("DELETE", `/api/contributions/${c.id}`), `Removed the ${money(c.amount)} entry.`)}>
+                <button className={quietBtn} disabled={busy} onClick={() => run(() => api("DELETE", `/api/contributions/${c.id}`), `Took back ${money(c.amount)}. It's back in your bank balance.`)}>
                   Undo
                 </button>
               </div>

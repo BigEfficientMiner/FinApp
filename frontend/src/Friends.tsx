@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { api as call } from "./api";
 
-type Person = { id: number; display_name: string };
+type Person = { id: number; username: string; display_name: string };
 type Link = { request_id: number; person: Person; since: string };
-type Overview = { friends: Link[]; incoming: Link[]; outgoing: Link[]; suggestions: Person[] };
+type Overview = { friends: Link[]; incoming: Link[]; outgoing: Link[] };
 
 const fullName = (p: Person) => p.display_name;
 const firstName = (p: Person) => p.display_name.split(" ")[0];
@@ -29,7 +29,9 @@ function PersonRow({ person, detail, children }: { person: Person; detail?: stri
     <div className="flex items-center gap-3 border-t border-[#edf0ef] px-5 py-3.5 first:border-t-0 sm:px-6">
       <Avatar person={person} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-bold">{fullName(person)}</p>
+        <p className="truncate text-xs font-bold">
+          {fullName(person)} <span className="font-semibold text-[#8a9893]">@{person.username}</span>
+        </p>
         {detail && <p className="text-[10px] text-[#8a9893]">{detail}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
@@ -45,38 +47,61 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <p className="px-5 py-6 text-xs text-[#8a9893] sm:px-6">{children}</p>;
 }
 
-export default function Friends() {
+export default function Friends({ myUsername }: { myUsername: string }) {
   const [data, setData] = useState<Overview | null>(null);
-  const [query, setQuery] = useState("");
+  const [username, setUsername] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(() => {
-    call<Overview>("GET", `/api/friends?q=${encodeURIComponent(query)}`)
+    call<Overview>("GET", "/api/friends")
       .then(setData)
       .catch((e) => setMessage({ kind: "error", text: `Couldn't load friends: ${e.message}` }));
-  }, [query]);
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  async function act(key: string, run: () => Promise<unknown>, success: string) {
+  async function act(key: string, run: () => Promise<unknown>, success: string | ((result: any) => string)) {
     setBusy(key);
     setMessage(null);
     try {
-      await run();
-      setMessage({ kind: "ok", text: success });
+      const result = await run();
+      setMessage({ kind: "ok", text: typeof success === "string" ? success : success(result) });
       load();
+      return true;
     } catch (e) {
       setMessage({ kind: "error", text: (e as Error).message });
+      return false;
     } finally {
       setBusy(null);
     }
   }
 
-  const sendRequest = (p: Person) =>
-    act(`add-${p.id}`, () => call("POST", "/api/friend-requests", { to_user_id: p.id }), `Friend request sent to ${firstName(p)}.`);
+  async function sendRequest(e: React.FormEvent) {
+    e.preventDefault();
+    const ok = await act(
+      "add",
+      () => call<{ status: string; person: Person }>("POST", "/api/friend-requests", { username }),
+      (r: { status: string; person: Person }) =>
+        r.status === "accepted"
+          ? `@${r.person.username} had already asked you, so you're now friends.`
+          : `Friend request sent to ${firstName(r.person)} (@${r.person.username}).`,
+    );
+    if (ok) setUsername("");
+  }
+
+  function copyUsername() {
+    navigator.clipboard
+      ?.writeText(`@${myUsername}`)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
+  }
   const accept = (l: Link) =>
     act(`accept-${l.request_id}`, () => call("POST", `/api/friend-requests/${l.request_id}/accept`), `You and ${firstName(l.person)} are now friends.`);
   const decline = (l: Link, cancel = false) =>
@@ -142,7 +167,7 @@ export default function Friends() {
               </div>
             </div>
             <div className="mt-3">
-              {data?.friends.length === 0 && <Empty>No friends yet. Find people to add on this page.</Empty>}
+              {data?.friends.length === 0 && <Empty>No friends yet. Add someone by their username.</Empty>}
               {data?.friends.map((l) => (
                 <PersonRow detail={`Friends since ${sinceDate(l.since)}`} key={l.request_id} person={l.person}>
                   <button className={quietBtn} disabled={busy !== null} onClick={() => remove(l)}>
@@ -155,30 +180,35 @@ export default function Friends() {
         </div>
 
         <div className="space-y-5">
-          <section className="panel !p-0">
-            <div className="px-5 pt-5 sm:px-6">
-              <p className="panel-title">Find people</p>
-              <p className="panel-subtitle">Search by name or exact email, then send a friend request</p>
-              <label className="mt-4 block">
-                <span className="sr-only">Search people by name</span>
+          <section className="panel">
+            <p className="panel-title">Add a friend</p>
+            <p className="panel-subtitle">Enter their username to send a friend request</p>
+            <form className="mt-4 flex gap-2" onSubmit={sendRequest}>
+              <label className="relative block flex-1">
+                <span className="sr-only">Friend's username</span>
+                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-xs text-[#8a9893]">@</span>
                 <input
-                  className="w-full rounded-xl border border-[#d8e0dd] bg-white px-4 py-2.5 text-xs outline-none focus:border-[#357866]"
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search by name or email"
-                  type="search"
-                  value={query}
+                  autoCapitalize="none"
+                  className="w-full rounded-xl border border-[#d8e0dd] bg-white py-2.5 pl-8 pr-4 text-xs outline-none focus:border-[#357866]"
+                  maxLength={21}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="username"
+                  required
+                  spellCheck={false}
+                  value={username}
                 />
               </label>
-            </div>
-            <div className="mt-3">
-              {data?.suggestions.length === 0 && <Empty>{query ? `No one matching “${query}”.` : "You're connected with everyone here."}</Empty>}
-              {data?.suggestions.map((p) => (
-                <PersonRow key={p.id} person={p}>
-                  <button className={primaryBtn} disabled={busy !== null} onClick={() => sendRequest(p)}>
-                    {busy === `add-${p.id}` ? "Sending…" : "Add friend"}
-                  </button>
-                </PersonRow>
-              ))}
+              <button className={`${primaryBtn} !px-4`} disabled={busy !== null || !username.trim()} type="submit">
+                {busy === "add" ? "Sending…" : "Send request"}
+              </button>
+            </form>
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-[#f5f8f7] px-4 py-3">
+              <p className="text-[11px] text-[#697975]">
+                Your username is <strong className="text-[#14211d]">@{myUsername}</strong>. Share it so friends can add you.
+              </p>
+              <button className={secondaryBtn} onClick={copyUsername} type="button">
+                {copied ? "Copied" : "Copy"}
+              </button>
             </div>
           </section>
 

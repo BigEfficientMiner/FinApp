@@ -9,21 +9,27 @@ Needs:  pip install fastapi uvicorn
 
 Everything except sign up / log in needs "Authorization: Bearer <token>".
 
-Accounts (auth.py):
-  POST /api/auth/signup {email, password, display_name} -> {token}
-  POST /api/auth/login  {email, password}               -> {token}
+App profiles (auth.py):
+  POST /api/auth/signup {display_name, username, password} -> {token}
+  POST /api/auth/login  {username, password}               -> {token}
+  GET  /api/auth/username-available?username=...
   POST /api/auth/logout
   GET  /api/me                                          -> you + your bank link
 Bank linking (bank.py):
   GET    /api/bank                                       -> linked profile + accounts
-  POST   /api/bank/link   {nessie_customer_id, last_name, zip}
-  POST   /api/bank/create {first_name, last_name, street_number, street_name, city, state, zip}
+  POST   /api/bank/link   {nessie_customer_id}
   DELETE /api/bank/link
 Dashboard (this file):
   GET /api/me/dashboard?period=this_month   (this_month, last_month, last_3_months)
+Demo simulations (simulate.py, demo mode only):
+  GET  /api/dev/simulations
+  POST /api/dev/simulate {kind}
+  GET  /api/me/funding-account          -> where goal savings come from + its balance (groups.py)
+Bank statement (statement.py):
+  GET /api/me/statement?period=last_30_days&account_id=   (last_30_days, this_month, last_month, last_3_months, all)
 Friends (friends.py):
-  GET    /api/friends?q=name                 -> friends, requests, people to add
-  POST   /api/friend-requests {to_user_id}   -> send a request
+  GET    /api/friends                        -> friends and requests
+  POST   /api/friend-requests {username}     -> send a request by username
   POST   /api/friend-requests/{id}/accept
   POST   /api/friend-requests/{id}/decline   (decline, or cancel one you sent)
   DELETE /api/friends/{user_id}              -> remove a friend
@@ -48,9 +54,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import auth
 import bank
+import banking
+import db
 import friends
 import groups
 import nessie
+import simulate
+import statement
 
 app = FastAPI(title="finapp backend")
 
@@ -66,23 +76,8 @@ app.include_router(auth.router)
 app.include_router(bank.router)
 app.include_router(friends.router)
 app.include_router(groups.router)
-
-_merchant_cache = {}
-
-
-def _merchant(merchant_id):
-    """Look up a merchant's name and category once, then remember it."""
-    if merchant_id not in _merchant_cache:
-        try:
-            m = nessie._request("GET", f"/merchants/{merchant_id}")
-            category = m.get("category") or "Other"
-            if isinstance(category, list):
-                category = category[0] if category else "Other"
-            _merchant_cache[merchant_id] = {"name": m.get("name", "Unknown merchant"), "category": category}
-        except nessie.NessieError:
-            _merchant_cache[merchant_id] = {"name": "Unknown merchant", "category": "Other"}
-    return _merchant_cache[merchant_id]
-
+app.include_router(statement.router)
+app.include_router(simulate.router)
 
 def _period_range(period, today=None):
     """Return (start, end, previous_start, previous_end) as dates, end inclusive."""
@@ -103,20 +98,13 @@ def _period_range(period, today=None):
     return start, end, prev_start, prev_end
 
 
-def _customer_purchases(customer_id):
-    purchases = []
-    for account in nessie.get_customer_accounts(customer_id):
-        for p in nessie._request("GET", f"/accounts/{account['_id']}/purchases") or []:
-            merchant = _merchant(p.get("merchant_id"))
-            purchases.append({
-                "id": p.get("_id"),
-                "date": date.fromisoformat(p["purchase_date"][:10]),
-                "amount": float(p.get("amount", 0)),
-                "merchant": merchant["name"],
-                "category": merchant["category"],
-                "description": p.get("description", ""),
-            })
-    return purchases
+def _customer_purchases(ledger):
+    """Purchases across all accounts (hidden/undone ones are already left out)."""
+    return [
+        {"id": l["id"], "date": l["date"], "amount": -l["amount"], "merchant": l.get("merchant", "Unknown merchant"),
+         "category": l["category"] or "Other", "description": l["description"].split(" · ", 1)[-1] if " · " in l["description"] else ""}
+        for l in ledger["lines"] if l["type"] == "Purchase"
+    ]
 
 
 def _daily_buckets(purchases, start, end):
@@ -132,6 +120,12 @@ def _daily_buckets(purchases, start, end):
     return {"unit": "day" if step == 1 else "week", "points": buckets}
 
 
+def _goal_savings_total(user_id: int) -> float:
+    with db.connect() as conn:
+        row = conn.execute("SELECT COALESCE(SUM(amount_cents), 0) AS c FROM contributions WHERE user_id = ?", (user_id,)).fetchone()
+    return round(row["c"] / 100, 2)
+
+
 @app.get("/api/me/dashboard")
 def dashboard(period: str = "this_month", user: dict = Depends(bank.require_bank_link)):
     """Spending dashboard for the logged-in user's linked bank profile."""
@@ -139,7 +133,8 @@ def dashboard(period: str = "this_month", user: dict = Depends(bank.require_bank
     try:
         customer = nessie.get_customer(customer_id)
         start, end, prev_start, prev_end = _period_range(period)
-        all_purchases = _customer_purchases(customer_id)
+        ledger = banking.customer_ledger(customer_id)
+        all_purchases = _customer_purchases(ledger)
     except nessie.NessieError as e:
         raise HTTPException(502, str(e))
 
@@ -175,6 +170,8 @@ def dashboard(period: str = "this_month", user: dict = Depends(bank.require_bank
         "previous_total": previous_total,
         "change_percent": round(100 * (total - previous_total) / previous_total, 1) if previous_total else None,
         "purchase_count": len(current),
+        "available_balance": round(sum(a["balance"] for a in ledger["accounts"] if a["type"] != "Credit Card"), 2),
+        "goal_savings": _goal_savings_total(user["id"]),
         "top_category": categories[0] if categories else None,
         "categories": categories,
         "daily": _daily_buckets(current, start, end),

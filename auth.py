@@ -1,4 +1,7 @@
-"""App accounts: sign up, log in, log out, and "who am I".
+"""App profiles: create a profile, log in, log out, and "who am I".
+
+A profile has a name (shown to friends), a username (used to log in and for
+friends to find you) and a password.
 
 - Passwords are hashed with PBKDF2-SHA256 (Python standard library) and a
   random salt. The plain password is never stored.
@@ -29,7 +32,13 @@ router = APIRouter(prefix="/api")
 SESSION_DAYS = 7
 PBKDF2_ITERATIONS = 200_000
 DEV_MODE = os.getenv("FINAPP_DEV", "1") != "0"
-DEMO_EMAIL_DOMAIN = "@demo.finapp"  # seed_users.py creates users with this domain
+
+# 3-20 characters: letters, numbers, underscores and periods. Stored lowercase.
+USERNAME_RE = re.compile(r"^[a-z0-9_.]{3,20}$")
+
+
+def normalize_username(raw: str) -> str:
+    return raw.strip().lstrip("@").lower()
 
 
 # ---------- Passwords and tokens ----------
@@ -67,7 +76,8 @@ def _start_session(conn, user_id: int) -> str:
 # ---------- Current user ----------
 
 def public_user(row) -> dict:
-    return {"id": row["id"], "display_name": row["display_name"]}
+    """What other users may see about someone."""
+    return {"id": row["id"], "username": row["username"], "display_name": row["display_name"]}
 
 
 def _bank_link(conn, user_id):
@@ -88,10 +98,10 @@ def current_user(authorization: str = Header(default="")) -> dict:
             (_hash_token(token),),
         ).fetchone()
         if row is None or row["expires_at"] < db.now():
-            raise HTTPException(401, "Your session has expired. Please log in again.")
+            raise HTTPException(401, "Your session has ended. Please log in again.")
         return {
             "id": row["id"],
-            "email": row["email"],
+            "username": row["username"],
             "display_name": row["display_name"],
             "bank_link": _bank_link(conn, row["id"]),
             "token_hash": _hash_token(token),
@@ -99,53 +109,62 @@ def current_user(authorization: str = Header(default="")) -> dict:
 
 
 def me_response(user: dict) -> dict:
-    return {k: user[k] for k in ("id", "email", "display_name", "bank_link")}
+    return {k: user[k] for k in ("id", "username", "display_name", "bank_link")}
 
 
 # ---------- Endpoints ----------
 
 class SignupIn(BaseModel):
-    email: str
-    password: str
     display_name: str
+    username: str
+    password: str
 
 
 class LoginIn(BaseModel):
-    email: str
+    username: str
     password: str
-
-
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 @router.post("/auth/signup", status_code=201)
 def signup(body: SignupIn):
-    email = body.email.strip().lower()
+    """Create an app profile and log in."""
     name = body.display_name.strip()
-    if not EMAIL_RE.match(email):
-        raise HTTPException(400, "Enter a valid email address")
-    if len(body.password) < 8:
-        raise HTTPException(400, "Password must be at least 8 characters")
+    username = normalize_username(body.username)
     if not name:
         raise HTTPException(400, "Enter your name")
+    if not USERNAME_RE.match(username):
+        raise HTTPException(400, "Usernames are 3-20 characters: letters, numbers, underscores and periods")
+    if len(body.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
     with db.connect() as conn:
-        if conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone():
-            raise HTTPException(409, "An account with this email already exists")
+        if conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
+            raise HTTPException(409, f"The username @{username} is taken. Try another one.")
         cur = conn.execute(
-            "INSERT INTO users (email, password_hash, display_name, created_at) VALUES (?, ?, ?, ?)",
-            (email, hash_password(body.password), name[:60], db.now()),
+            "INSERT INTO users (username, password_hash, display_name, created_at) VALUES (?, ?, ?, ?)",
+            (username, hash_password(body.password), name[:60], db.now()),
         )
         token = _start_session(conn, cur.lastrowid)
     return {"token": token}
 
 
+@router.get("/auth/username-available")
+def username_available(username: str):
+    """Lets the profile form say "taken" while you type."""
+    name = normalize_username(username)
+    if not USERNAME_RE.match(name):
+        return {"username": name, "valid": False, "available": False}
+    with db.connect() as conn:
+        taken = conn.execute("SELECT 1 FROM users WHERE username = ?", (name,)).fetchone() is not None
+    return {"username": name, "valid": True, "available": not taken}
+
+
 @router.post("/auth/login")
 def login(body: LoginIn):
     with db.connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (body.email.strip().lower(),)).fetchone()
-        # Same message whether the email or the password is wrong.
+        row = conn.execute("SELECT * FROM users WHERE username = ?", (normalize_username(body.username),)).fetchone()
+        # Same message whether the username or the password is wrong.
         if row is None or not check_password(body.password, row["password_hash"]):
-            raise HTTPException(401, "Email or password is incorrect")
+            raise HTTPException(401, "Username or password is incorrect")
         token = _start_session(conn, row["id"])
     return {"token": token}
 
@@ -168,29 +187,23 @@ class LoginAsIn(BaseModel):
     user_id: int
 
 
-def _require_dev():
-    if not DEV_MODE:
-        raise HTTPException(404, "Not found")
-
-
 @router.get("/dev/demo-users")
 def demo_users():
-    """Seeded demo users (only those, never real sign-ups)."""
+    """Seeded demo users (only those, never real profiles)."""
     if not DEV_MODE:
         return []
     with db.connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM users WHERE email LIKE ? ORDER BY display_name", (f"%{DEMO_EMAIL_DOMAIN}",)
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM users WHERE is_demo = 1 ORDER BY display_name").fetchall()
     return [public_user(r) for r in rows]
 
 
 @router.post("/dev/login-as")
 def login_as(body: LoginAsIn):
-    _require_dev()
+    if not DEV_MODE:
+        raise HTTPException(404, "Not found")
     with db.connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (body.user_id,)).fetchone()
-        if row is None or not row["email"].endswith(DEMO_EMAIL_DOMAIN):
+        row = conn.execute("SELECT * FROM users WHERE id = ? AND is_demo = 1", (body.user_id,)).fetchone()
+        if row is None:
             raise HTTPException(404, "Demo user not found")
         token = _start_session(conn, row["id"])
     return {"token": token}
