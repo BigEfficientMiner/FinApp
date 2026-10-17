@@ -4,7 +4,8 @@ The React app calls these endpoints; this server calls Nessie (with the API
 key from .env) and returns JSON shaped for the screens.
 
 Run it with:  venv\\Scripts\\python.exe server.py
-(or click Run on this file in VS Code). It listens on http://localhost:8000.
+(or click Run on this file in VS Code). It listens on http://localhost:8000
+(or on $PORT when hosted, e.g. on Railway).
 Needs:  pip install fastapi uvicorn
 
 Everything except sign up / log in needs "Authorization: Bearer <token>".
@@ -51,6 +52,7 @@ Notifications (notifications.py):
 AI insights (gemini.py, needs GEMINI_API_KEY in .env):
   GET /api/me/insights?period=this_month   -> {available, insights: {headline, persona, insights, tips}}
 """
+import os
 from collections import defaultdict
 from datetime import date, timedelta
 
@@ -71,11 +73,20 @@ import statement
 
 app = FastAPI(title="finapp backend")
 
-# The Vite dev server (frontend) runs on port 8443.
+# Which websites may call this API: the deployed frontend on Railway plus local
+# development (the Vite dev server runs on port 8443). To allow another site,
+# set FRONTEND_ORIGINS in .env or Railway's variables (comma-separated).
+ALLOWED_ORIGINS = [
+    "https://finapp-poo.up.railway.app",
+    "http://localhost:8443",
+    "http://127.0.0.1:8443",
+] + [o.strip() for o in os.getenv("FRONTEND_ORIGINS", "").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8443", "http://127.0.0.1:8443"],
-    allow_methods=["GET", "POST", "DELETE"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -229,4 +240,5 @@ if __name__ == "__main__":
 
     if auth.DEV_MODE:
         print("Demo login shortcut is ON (set FINAPP_DEV=0 to turn it off).")
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # Railway sets PORT and needs 0.0.0.0; locally this is still http://localhost:8000.
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
