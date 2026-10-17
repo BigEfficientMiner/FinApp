@@ -45,6 +45,11 @@ Groups and shared goals (groups.py):
   POST   /api/goals/{id}/commit {share_amount}
   POST   /api/goals/{id}/contributions {amount, note}
   DELETE /api/contributions/{id}
+Notifications (notifications.py):
+  GET  /api/notifications                  -> {unread_count, items}
+  POST /api/notifications/seen
+AI insights (gemini.py, needs GEMINI_API_KEY in .env):
+  GET /api/me/insights?period=this_month   -> {available, insights: {headline, persona, insights, tips}}
 """
 from collections import defaultdict
 from datetime import date, timedelta
@@ -57,8 +62,10 @@ import bank
 import banking
 import db
 import friends
+import gemini
 import groups
 import nessie
+import notifications
 import simulate
 import statement
 
@@ -78,6 +85,7 @@ app.include_router(friends.router)
 app.include_router(groups.router)
 app.include_router(statement.router)
 app.include_router(simulate.router)
+app.include_router(notifications.router)
 
 def _period_range(period, today=None):
     """Return (start, end, previous_start, previous_end) as dates, end inclusive."""
@@ -179,6 +187,41 @@ def dashboard(period: str = "this_month", user: dict = Depends(bank.require_bank
             {**p, "date": p["date"].isoformat()} for p in recent
         ],
     }
+
+
+def _insight_summary(d: dict) -> dict:
+    """The small, exact summary Gemini sees. No IDs, names of accounts or raw transaction lists."""
+    points = d["daily"]["points"]
+    peak = max(points, key=lambda p: p["amount"], default=None)
+    return {
+        "first_name": d["customer"]["first_name"],
+        "period": d["period"],
+        "total_spending": d["total"],
+        "previous_period_spending": d["previous_total"],
+        "change_vs_previous_pct": d["change_percent"],
+        "purchase_count": d["purchase_count"],
+        "available_balance": d["available_balance"],
+        "saved_into_group_goals": d["goal_savings"],
+        "spending_by_category": [
+            {"category": c["name"], "amount": c["amount"], "purchases": c["count"], "pct_of_spending": c["percent"]}
+            for c in d["categories"]
+        ],
+        "biggest_spending_" + d["daily"]["unit"]: {"start": peak["date"], "amount": peak["amount"]} if peak and peak["amount"] else None,
+    }
+
+
+@app.get("/api/me/insights")
+def insights(period: str = "this_month", user: dict = Depends(bank.require_bank_link)):
+    """Gemini's plain-English read of the dashboard numbers for this period."""
+    if not gemini.available():
+        return {"available": False, "reason": "Add GEMINI_API_KEY to .env to turn on AI insights."}
+    d = dashboard(period, user)
+    if not d["purchase_count"]:
+        return {"available": False, "reason": "No purchases in this period yet."}
+    result = gemini.explain(_insight_summary(d))
+    if result is None:
+        return {"available": False, "reason": "Couldn't reach Gemini right now. Try again in a minute."}
+    return {"available": True, "insights": result}
 
 
 if __name__ == "__main__":
