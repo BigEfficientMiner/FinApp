@@ -132,8 +132,10 @@ def stamp(d: date, hour: int = 15) -> str:
     return datetime.combine(d, time(hour), tzinfo=timezone.utc).isoformat(timespec="seconds")
 
 
-def build_history(p, accounts, merchants, user_id):
-    """Create a persona's transactions in Nessie, day by day, never going below $50."""
+def build_history(p, accounts, merchants, user_id, start=None, end=None):
+    """Create a persona's transactions in Nessie, day by day, never going below $50.
+    start/end default to the demo window (about 3 months ending yesterday)."""
+    start, end = start or START, end or END
     rng = random.Random(p["seed"])
     by_type = {t: aid for (t, _, _), aid in zip(p["accounts"], accounts)}
     account_names = {aid: nick for (_, nick, _), aid in zip(p["accounts"], accounts)}
@@ -147,11 +149,11 @@ def build_history(p, accounts, merchants, user_id):
     def money_out(aid, cents):
         balance[aid] -= cents / 100
 
-    day = START
-    while day <= END:
+    day = start
+    while day <= end:
         when = day.isoformat()
         pay = p["pay"]
-        if ("every" in pay and (day - START).days % pay["every"] == pay["first_offset"]) or \
+        if ("every" in pay and (day - start).days % pay["every"] == pay["first_offset"]) or \
            (day.day in pay.get("days_of_month", ())):
             banking.deposit(checking, pay["amount"] * 100, pay["desc"], user_id=user_id, source="seed", when=when)
             balance[checking] += pay["amount"]; count += 1
@@ -171,7 +173,7 @@ def build_history(p, accounts, merchants, user_id):
                 money_out(checking, amount * 100); balance[to] += amount; count += 1
 
         every, atm = p["atm"]
-        if (day - START).days % every == every // 2 and can_spend(checking, atm):
+        if (day - start).days % every == every // 2 and can_spend(checking, atm):
             banking.withdraw(checking, atm * 100, "ATM withdrawal", user_id=user_id, source="seed", when=when)
             money_out(checking, atm * 100); count += 1
 
@@ -188,6 +190,19 @@ def build_history(p, accounts, merchants, user_id):
     return count, balance
 
 
+def create_merchants() -> dict:
+    """Create the invented merchants in Nessie. Returns {name: merchant_id}."""
+    merchants = {}
+    for name, category in MERCHANTS.items():
+        mid = nessie._created_id(nessie._request("POST", "/merchants", {
+            "name": name, "category": category,
+            "address": {"street_number": "100", "street_name": "Main St", "city": "Gainesville", "state": "FL", "zip": "32601"},
+            "geocode": {"lat": 29.6516, "lng": -82.3248}}))
+        merchants[name] = mid
+        banking.remember_merchant(mid, name, category)
+    return merchants
+
+
 def setup(force: bool = False):
     if DEMO_BANK.exists() and not force:
         print("The demo is already set up (demo_bank.json exists), so nothing was changed.")
@@ -202,14 +217,7 @@ def setup(force: bool = False):
             conn.execute(f"DELETE FROM {table}")
 
     # Merchants (shared by everyone)
-    merchants = {}
-    for name, category in MERCHANTS.items():
-        mid = nessie._created_id(nessie._request("POST", "/merchants", {
-            "name": name, "category": category,
-            "address": {"street_number": "100", "street_name": "Main St", "city": "Gainesville", "state": "FL", "zip": "32601"},
-            "geocode": {"lat": 29.6516, "lng": -82.3248}}))
-        merchants[name] = mid
-        banking.remember_merchant(mid, name, category)
+    merchants = create_merchants()
     print(f"Created {len(merchants)} merchants")
 
     saved = {"created_at": db.now(), "history": [START.isoformat(), END.isoformat()],
