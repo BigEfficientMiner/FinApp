@@ -1,0 +1,496 @@
+"""Groups and shared savings goals.
+
+Flow:
+  1. Anyone creates a group (they become its owner and first member).
+  2. Members invite their FRIENDS (accepted friend requests only).
+     The invitee accepts or declines; the inviter can cancel.
+  3. Any member creates a shared goal: title, target amount, deadline.
+  4. Each member COMMITS to the goal by taking on a share (default: an even split).
+     Uncommitted members are shown as "not committed", which is the point:
+     everyone can see who's in.
+  5. Committed members log what they've saved (contributions).
+     Progress is compared with where each person should be by now
+     (their share x how much of the time from when THEY committed to the
+     deadline has passed), so each member is "on track", "behind" or "complete".
+     The group as a whole is measured from when the goal was created.
+  6. Every join, commitment and contribution goes into the group's activity feed.
+
+Money: amounts come in and go out as dollars, but are stored as whole cents.
+Contributions are recorded in the app; no money moves in Nessie (yet).
+"""
+import math
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+import db
+from auth import current_user, public_user
+from friends import friend_ids
+
+router = APIRouter(prefix="/api")
+
+MAX_AMOUNT_CENTS = 100_000_000  # $1,000,000 sanity cap
+
+
+# ---------- Helpers ----------
+
+def to_cents(dollars: float, field: str = "Amount") -> int:
+    if dollars is None or not math.isfinite(dollars):
+        raise HTTPException(400, f"{field} must be a number")
+    cents = round(dollars * 100)
+    if cents <= 0:
+        raise HTTPException(400, f"{field} must be more than $0")
+    if cents > MAX_AMOUNT_CENTS:
+        raise HTTPException(400, f"{field} is too large")
+    return cents
+
+
+def dollars(cents: int) -> float:
+    return round(cents / 100, 2)
+
+
+def _log(conn, group_id, user_id, kind, message):
+    conn.execute(
+        "INSERT INTO group_activity (group_id, user_id, kind, message, created_at) VALUES (?, ?, ?, ?, ?)",
+        (group_id, user_id, kind, message, db.now()),
+    )
+
+
+def _name(conn, user_id):
+    row = conn.execute("SELECT display_name FROM users WHERE id = ?", (user_id,)).fetchone()
+    return row["display_name"] if row else "Someone"
+
+
+def _is_member(conn, group_id, user_id) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?", (group_id, user_id)
+    ).fetchone() is not None
+
+
+def _require_group_member(conn, group_id, user_id):
+    group = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
+    # Same 404 whether the group doesn't exist or you're not in it.
+    if group is None or not _is_member(conn, group_id, user_id):
+        raise HTTPException(404, "Group not found")
+    return group
+
+
+def _goal_for_member(conn, goal_id, user_id):
+    goal = conn.execute("SELECT * FROM goals WHERE id = ?", (goal_id,)).fetchone()
+    if goal is None or not _is_member(conn, goal["group_id"], user_id):
+        raise HTTPException(404, "Goal not found")
+    return goal
+
+
+def _time_elapsed_fraction(created_at: str, deadline: str, today: date) -> float:
+    start = date.fromisoformat(created_at[:10])
+    end = date.fromisoformat(deadline)
+    if end <= start:
+        return 1.0
+    return min(1.0, max(0.0, (today - start).days / (end - start).days))
+
+
+def goal_progress(conn, goal, viewer_id: int, today: date | None = None) -> dict:
+    """Everything the UI shows about one goal: totals, pace, and each member's status."""
+    today = today or date.today()
+    members = conn.execute(
+        "SELECT u.id, u.display_name FROM group_members m JOIN users u ON u.id = m.user_id "
+        "WHERE m.group_id = ? ORDER BY m.joined_at",
+        (goal["group_id"],),
+    ).fetchall()
+    commitments = {r["user_id"]: r for r in conn.execute(
+        "SELECT user_id, share_cents, committed_at FROM goal_commitments WHERE goal_id = ?", (goal["id"],))}
+    shares = {uid: r["share_cents"] for uid, r in commitments.items()}
+    saved = {r["user_id"]: r["total"] for r in conn.execute(
+        "SELECT user_id, SUM(amount_cents) AS total FROM contributions WHERE goal_id = ? GROUP BY user_id",
+        (goal["id"],))}
+
+    elapsed = _time_elapsed_fraction(goal["created_at"], goal["deadline"], today)
+    target = goal["target_cents"]
+    total_saved = sum(saved.values())
+    member_ids = {m["id"] for m in members}
+
+    rows = []
+    for m in members:
+        share, have = shares.get(m["id"]), saved.get(m["id"], 0)
+        if share is None:
+            status, expected = "not_committed", 0
+        else:
+            # Each person's pace starts when THEY committed, so late joiners aren't instantly "behind".
+            mine = _time_elapsed_fraction(commitments[m["id"]]["committed_at"], goal["deadline"], today)
+            expected = round(share * mine)
+            status = "complete" if have >= share else "on_track" if have >= expected else "behind"
+        rows.append({
+            "person": {"id": m["id"], "display_name": m["display_name"]},
+            "share": dollars(share) if share else None,
+            "saved": dollars(have),
+            "expected_by_now": dollars(expected),
+            "percent": min(100, round(100 * have / share)) if share else 0,
+            "status": status,
+        })
+
+    # People who saved but have since left the group still count toward the total.
+    former_saved = sum(v for uid, v in saved.items() if uid not in member_ids)
+
+    days_left = (date.fromisoformat(goal["deadline"]) - today).days
+    if total_saved >= target:
+        status = "complete"
+    elif days_left < 0:
+        status = "missed"
+    else:
+        status = "on_track" if total_saved >= round(target * elapsed) else "behind"
+
+    committed_total = sum(shares.get(uid, 0) for uid in member_ids)
+    return {
+        "id": goal["id"],
+        "title": goal["title"],
+        "target": dollars(target),
+        "deadline": goal["deadline"],
+        "created_at": goal["created_at"],
+        "created_by": goal["created_by"],
+        "days_left": days_left,
+        "total_saved": dollars(total_saved),
+        "former_members_saved": dollars(former_saved),
+        "percent": min(100, round(100 * total_saved / target)),
+        "expected_by_now": dollars(round(target * elapsed)),
+        "committed_total": dollars(committed_total),
+        "uncommitted_count": sum(1 for r in rows if r["status"] == "not_committed"),
+        "status": status,
+        "my_share": dollars(shares[viewer_id]) if viewer_id in shares else None,
+        "suggested_share": dollars(math.ceil(target / max(1, len(members)))),
+        "members": rows,
+    }
+
+
+# ---------- Request bodies ----------
+
+class GroupIn(BaseModel):
+    name: str
+    invite_user_ids: list[int] = []
+
+
+class InviteIn(BaseModel):
+    user_id: int
+
+
+class GoalIn(BaseModel):
+    title: str
+    target_amount: float
+    deadline: str  # YYYY-MM-DD
+
+
+class CommitIn(BaseModel):
+    share_amount: float
+
+
+class ContributionIn(BaseModel):
+    amount: float
+    note: str = ""
+
+
+# ---------- Groups ----------
+
+def _invite(conn, group_id, inviter_id, invitee_id):
+    if invitee_id == inviter_id:
+        raise HTTPException(400, "You're already in this group")
+    if invitee_id not in friend_ids(conn, inviter_id):
+        raise HTTPException(403, "You can only invite people you're friends with")
+    if _is_member(conn, group_id, invitee_id):
+        raise HTTPException(409, "They're already in this group")
+    if conn.execute(
+        "SELECT 1 FROM group_invites WHERE group_id = ? AND invitee_id = ?", (group_id, invitee_id)
+    ).fetchone():
+        raise HTTPException(409, "They've already been invited")
+    cur = conn.execute(
+        "INSERT INTO group_invites (group_id, inviter_id, invitee_id, created_at) VALUES (?, ?, ?, ?)",
+        (group_id, inviter_id, invitee_id, db.now()),
+    )
+    _log(conn, group_id, inviter_id, "invite", f"{_name(conn, inviter_id)} invited {_name(conn, invitee_id)}")
+    return cur.lastrowid
+
+
+@router.get("/groups")
+def my_groups(user: dict = Depends(current_user)):
+    """Your groups (with a quick progress summary) and invites waiting for you."""
+    me = user["id"]
+    with db.connect() as conn:
+        groups = conn.execute(
+            "SELECT g.* FROM groups g JOIN group_members m ON m.group_id = g.id WHERE m.user_id = ? "
+            "ORDER BY g.created_at DESC",
+            (me,),
+        ).fetchall()
+        result = []
+        for g in groups:
+            members = conn.execute(
+                "SELECT u.id, u.display_name FROM group_members m JOIN users u ON u.id = m.user_id "
+                "WHERE m.group_id = ? ORDER BY m.joined_at", (g["id"],)
+            ).fetchall()
+            goals = [goal_progress(conn, row, me) for row in conn.execute(
+                "SELECT * FROM goals WHERE group_id = ? ORDER BY deadline", (g["id"],))]
+            result.append({
+                "id": g["id"],
+                "name": g["name"],
+                "members": [public_user(m) for m in members],
+                "goals": [{k: goal[k] for k in ("id", "title", "target", "total_saved", "percent", "status",
+                                                 "days_left", "my_share")} for goal in goals],
+            })
+
+        invites = conn.execute(
+            "SELECT i.id, i.created_at, g.id AS group_id, g.name, u.id AS inviter_id, u.display_name AS inviter_name, "
+            "(SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS member_count "
+            "FROM group_invites i JOIN groups g ON g.id = i.group_id JOIN users u ON u.id = i.inviter_id "
+            "WHERE i.invitee_id = ? ORDER BY i.created_at DESC",
+            (me,),
+        ).fetchall()
+
+    return {
+        "groups": result,
+        "invites": [
+            {"id": i["id"], "created_at": i["created_at"],
+             "group": {"id": i["group_id"], "name": i["name"], "member_count": i["member_count"]},
+             "invited_by": {"id": i["inviter_id"], "display_name": i["inviter_name"]}}
+            for i in invites
+        ],
+    }
+
+
+@router.post("/groups", status_code=201)
+def create_group(body: GroupIn, user: dict = Depends(current_user)):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Give your group a name")
+    me = user["id"]
+    with db.connect() as conn:
+        # Check every invite first so we don't create half a group.
+        friends_of_me = friend_ids(conn, me)
+        bad = [uid for uid in body.invite_user_ids if uid not in friends_of_me]
+        if bad:
+            raise HTTPException(403, "You can only invite people you're friends with")
+
+        group_id = conn.execute(
+            "INSERT INTO groups (name, owner_id, created_at) VALUES (?, ?, ?)", (name[:60], me, db.now())
+        ).lastrowid
+        conn.execute(
+            "INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)", (group_id, me, db.now())
+        )
+        _log(conn, group_id, me, "create", f"{user['display_name']} created the group")
+        for uid in dict.fromkeys(body.invite_user_ids):  # de-duplicate, keep order
+            _invite(conn, group_id, me, uid)
+    return {"id": group_id}
+
+
+@router.get("/groups/{group_id}")
+def group_detail(group_id: int, user: dict = Depends(current_user)):
+    me = user["id"]
+    with db.connect() as conn:
+        group = _require_group_member(conn, group_id, me)
+        members = conn.execute(
+            "SELECT u.id, u.display_name, m.joined_at FROM group_members m JOIN users u ON u.id = m.user_id "
+            "WHERE m.group_id = ? ORDER BY m.joined_at", (group_id,)
+        ).fetchall()
+        member_ids = {m["id"] for m in members}
+        invites = conn.execute(
+            "SELECT i.id, i.inviter_id, u.id AS uid, u.display_name FROM group_invites i "
+            "JOIN users u ON u.id = i.invitee_id WHERE i.group_id = ? ORDER BY i.created_at", (group_id,)
+        ).fetchall()
+        invited_ids = {i["uid"] for i in invites}
+
+        my_friends = friend_ids(conn, me)
+        invitable = [
+            public_user(r) for r in conn.execute("SELECT * FROM users ORDER BY display_name")
+            if r["id"] in my_friends and r["id"] not in member_ids and r["id"] not in invited_ids
+        ]
+        goals = [goal_progress(conn, row, me) for row in conn.execute(
+            "SELECT * FROM goals WHERE group_id = ? ORDER BY deadline", (group_id,))]
+        activity = conn.execute(
+            "SELECT kind, message, created_at FROM group_activity WHERE group_id = ? ORDER BY id DESC LIMIT 30",
+            (group_id,),
+        ).fetchall()
+        my_contributions = conn.execute(
+            "SELECT c.id, c.goal_id, c.amount_cents, c.note, c.created_at FROM contributions c "
+            "JOIN goals g ON g.id = c.goal_id WHERE g.group_id = ? AND c.user_id = ? ORDER BY c.id DESC LIMIT 20",
+            (group_id, me),
+        ).fetchall()
+
+    return {
+        "id": group["id"],
+        "name": group["name"],
+        "owner_id": group["owner_id"],
+        "created_at": group["created_at"],
+        "members": [{"id": m["id"], "display_name": m["display_name"], "joined_at": m["joined_at"],
+                     "is_owner": m["id"] == group["owner_id"]} for m in members],
+        "pending_invites": [{"id": i["id"], "person": {"id": i["uid"], "display_name": i["display_name"]},
+                             "can_cancel": i["inviter_id"] == me} for i in invites],
+        "invitable_friends": invitable,
+        "goals": goals,
+        "my_contributions": [{"id": c["id"], "goal_id": c["goal_id"], "amount": dollars(c["amount_cents"]),
+                              "note": c["note"], "created_at": c["created_at"]} for c in my_contributions],
+        "activity": [dict(a) for a in activity],
+    }
+
+
+@router.post("/groups/{group_id}/invites", status_code=201)
+def invite_friend(group_id: int, body: InviteIn, user: dict = Depends(current_user)):
+    with db.connect() as conn:
+        _require_group_member(conn, group_id, user["id"])
+        invite_id = _invite(conn, group_id, user["id"], body.user_id)
+    return {"invite_id": invite_id}
+
+
+def _get_invite(conn, invite_id):
+    row = conn.execute("SELECT * FROM group_invites WHERE id = ?", (invite_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Invite not found")
+    return row
+
+
+@router.post("/group-invites/{invite_id}/accept")
+def accept_invite(invite_id: int, user: dict = Depends(current_user)):
+    me = user["id"]
+    with db.connect() as conn:
+        inv = _get_invite(conn, invite_id)
+        if inv["invitee_id"] != me:
+            raise HTTPException(404, "Invite not found")
+        conn.execute(
+            "INSERT OR IGNORE INTO group_members (group_id, user_id, joined_at) VALUES (?, ?, ?)",
+            (inv["group_id"], me, db.now()),
+        )
+        conn.execute("DELETE FROM group_invites WHERE id = ?", (invite_id,))
+        _log(conn, inv["group_id"], me, "join", f"{user['display_name']} joined the group")
+    return {"group_id": inv["group_id"]}
+
+
+@router.post("/group-invites/{invite_id}/decline")
+def decline_invite(invite_id: int, user: dict = Depends(current_user)):
+    """The invitee declines, or the person who sent it cancels."""
+    me = user["id"]
+    with db.connect() as conn:
+        inv = _get_invite(conn, invite_id)
+        if me not in (inv["invitee_id"], inv["inviter_id"]):
+            raise HTTPException(404, "Invite not found")
+        conn.execute("DELETE FROM group_invites WHERE id = ?", (invite_id,))
+        if me == inv["invitee_id"]:
+            _log(conn, inv["group_id"], me, "decline", f"{user['display_name']} declined the invite")
+    return {"status": "removed"}
+
+
+@router.post("/groups/{group_id}/leave")
+def leave_group(group_id: int, user: dict = Depends(current_user)):
+    """Leave a group. Your past contributions stay in the totals; your commitments are dropped.
+    If the owner leaves, the longest-standing member becomes owner. The last one out deletes the group."""
+    me = user["id"]
+    with db.connect() as conn:
+        group = _require_group_member(conn, group_id, me)
+        conn.execute("DELETE FROM group_members WHERE group_id = ? AND user_id = ?", (group_id, me))
+        conn.execute(
+            "DELETE FROM goal_commitments WHERE user_id = ? AND goal_id IN (SELECT id FROM goals WHERE group_id = ?)",
+            (me, group_id),
+        )
+        remaining = conn.execute(
+            "SELECT user_id FROM group_members WHERE group_id = ? ORDER BY joined_at", (group_id,)
+        ).fetchall()
+        if not remaining:
+            conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
+            return {"status": "group deleted"}
+        if group["owner_id"] == me:
+            conn.execute("UPDATE groups SET owner_id = ? WHERE id = ?", (remaining[0]["user_id"], group_id))
+        _log(conn, group_id, me, "leave", f"{user['display_name']} left the group")
+    return {"status": "left"}
+
+
+# ---------- Goals ----------
+
+@router.post("/groups/{group_id}/goals", status_code=201)
+def create_goal(group_id: int, body: GoalIn, user: dict = Depends(current_user)):
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(400, "Give the goal a name")
+    target = to_cents(body.target_amount, "Target")
+    try:
+        deadline = date.fromisoformat(body.deadline)
+    except ValueError:
+        raise HTTPException(400, "Deadline must be a date like 2027-03-01")
+    if deadline <= date.today():
+        raise HTTPException(400, "Pick a deadline in the future")
+
+    with db.connect() as conn:
+        _require_group_member(conn, group_id, user["id"])
+        goal_id = conn.execute(
+            "INSERT INTO goals (group_id, title, target_cents, deadline, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (group_id, title[:80], target, deadline.isoformat(), user["id"], db.now()),
+        ).lastrowid
+        _log(conn, group_id, user["id"], "goal",
+             f"{user['display_name']} created the goal “{title[:80]}”: ${dollars(target):,.2f} by {deadline:%b %d, %Y}")
+    return {"id": goal_id}
+
+
+@router.delete("/goals/{goal_id}")
+def delete_goal(goal_id: int, user: dict = Depends(current_user)):
+    """Only the goal's creator or the group owner can delete it."""
+    with db.connect() as conn:
+        goal = _goal_for_member(conn, goal_id, user["id"])
+        owner = conn.execute("SELECT owner_id FROM groups WHERE id = ?", (goal["group_id"],)).fetchone()["owner_id"]
+        if user["id"] not in (goal["created_by"], owner):
+            raise HTTPException(403, "Only the person who created this goal, or the group owner, can delete it")
+        conn.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
+        _log(conn, goal["group_id"], user["id"], "goal_deleted", f"{user['display_name']} deleted the goal “{goal['title']}”")
+    return {"status": "deleted"}
+
+
+@router.post("/goals/{goal_id}/commit")
+def commit_to_goal(goal_id: int, body: CommitIn, user: dict = Depends(current_user)):
+    """Take on (or change) your share of a goal."""
+    share = to_cents(body.share_amount, "Your share")
+    with db.connect() as conn:
+        goal = _goal_for_member(conn, goal_id, user["id"])
+        if share > goal["target_cents"]:
+            raise HTTPException(400, "Your share can't be more than the whole goal")
+        existed = conn.execute(
+            "SELECT 1 FROM goal_commitments WHERE goal_id = ? AND user_id = ?", (goal_id, user["id"])
+        ).fetchone()
+        conn.execute(
+            "INSERT INTO goal_commitments (goal_id, user_id, share_cents, committed_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (goal_id, user_id) DO UPDATE SET share_cents = excluded.share_cents",
+            (goal_id, user["id"], share, db.now()),
+        )
+        if existed:
+            message = f"{user['display_name']} changed their share of “{goal['title']}” to ${dollars(share):,.2f}"
+        else:
+            message = f"{user['display_name']} committed ${dollars(share):,.2f} to “{goal['title']}”"
+        _log(conn, goal["group_id"], user["id"], "commit", message)
+    return {"share": dollars(share)}
+
+
+@router.post("/goals/{goal_id}/contributions", status_code=201)
+def add_contribution(goal_id: int, body: ContributionIn, user: dict = Depends(current_user)):
+    amount = to_cents(body.amount)
+    with db.connect() as conn:
+        goal = _goal_for_member(conn, goal_id, user["id"])
+        if not conn.execute(
+            "SELECT 1 FROM goal_commitments WHERE goal_id = ? AND user_id = ?", (goal_id, user["id"])
+        ).fetchone():
+            raise HTTPException(409, "Commit to this goal before logging savings")
+        cid = conn.execute(
+            "INSERT INTO contributions (goal_id, user_id, amount_cents, note, created_at) VALUES (?, ?, ?, ?, ?)",
+            (goal_id, user["id"], amount, body.note.strip()[:120], db.now()),
+        ).lastrowid
+        _log(conn, goal["group_id"], user["id"], "contribution",
+             f"{user['display_name']} saved ${dollars(amount):,.2f} toward “{goal['title']}”")
+    return {"id": cid}
+
+
+@router.delete("/contributions/{contribution_id}")
+def undo_contribution(contribution_id: int, user: dict = Depends(current_user)):
+    """Remove one of your own contributions (for mistakes)."""
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT c.*, g.group_id, g.title FROM contributions c JOIN goals g ON g.id = c.goal_id WHERE c.id = ?",
+            (contribution_id,),
+        ).fetchone()
+        if row is None or row["user_id"] != user["id"]:
+            raise HTTPException(404, "Contribution not found")
+        conn.execute("DELETE FROM contributions WHERE id = ?", (contribution_id,))
+        _log(conn, row["group_id"], user["id"], "contribution_removed",
+             f"{user['display_name']} removed a ${dollars(row['amount_cents']):,.2f} entry from “{row['title']}”")
+    return {"status": "removed"}

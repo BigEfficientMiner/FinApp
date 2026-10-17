@@ -1,0 +1,75 @@
+[
+  {
+    "name": "Maya Johnson",
+    "customer_id": "c5b9f2b6-8a6d-4afa-80bd-a0ee068abcde",
+    "accounts": [
+      {
+        "type": "Checking",
+        "nickname": "Everyday Checking",
+        "account_id": "4b487140-7233-44d6-ba76-06571115b085",
+        "deposit_ids": [
+          "4405fdfb-53bc-4fbb-bd4e-60b3960ba6ac",
+          "c8d9c97f-aeaf-44c8-8742-0fe2101ebe5c"
+        ]
+      },
+      {
+        "type": "Savings",
+        "nickname": "Emergency Fund",
+        "account_id": "d649e4e3-fe8d-41ea-b483-6d05b34c95a9",
+        "deposit_ids": [
+          "9d6fb4e8-fac5-4ca4-a055-06d4caf9b8b5"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Carlos Rivera",
+    "customer_id": "b08ac5fc-a551-4772-808a-130aedd3b211",
+    "accounts": [
+      {
+        "type": "Checking",
+        "nickname": "Student Checking",
+        "account_id": "1b1c9024-ad59-4b94-8a66-4dea8bcc8d8e",
+        "deposit_ids": [
+          "186cfe68-ce7f-4990-8aa9-3bb8392eaacd",
+          "f256c56a-113c-45e6-94b4-5b3ae5da3b88"
+        ]
+      },
+      {
+        "type": "Credit Card",
+        "nickname": "Starter Card",
+        "account_id": "51db7b72-1442-48a9-b616-285fda1b87ef",
+        "deposit_ids": []
+      }
+    ]
+  },
+  {
+    "name": "Priya Patel",
+    "customer_id": "caaec4aa-69dc-4c49-bf95-0910cb0effca",
+    "accounts": [
+      {
+        "type": "Checking",
+        "nickname": "Main Checking",
+        "account_id": "27687d1c-419b-4a09-bbef-ce8321d9b947",
+        "deposit_ids": [
+          "55a175c5-a9ea-42d8-964f-a7830c85aca7",
+          "41527982-cc25-41e7-86f4-7422288718f5"
+        ]
+      },
+      {
+        "type": "Savings",
+        "nickname": "House Fund",
+        "account_id": "689b4f80-b14e-4d69-b713-08cf479c8749",
+        "deposit_ids": [
+          "ba9c4c44-6e49-4ad8-9709-1e34335465a3"
+        ]
+      },
+      {
+        "type": "Credit Card",
+        "nickname": "Travel Rewards",
+        "account_id": "754af353-8bc8-4795-bd1a-edb289fa4adf",
+        "deposit_ids": []
+      }
+    ]
+  }
+]

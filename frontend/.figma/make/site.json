@@ -1,0 +1,10 @@
+{
+  "description": "This banking application provides users with detailed purchase history reports and offers discounts on their most purchased categories, enhancing savings.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

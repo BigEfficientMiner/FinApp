@@ -1,0 +1,24 @@
+# Secrets: never commit these
+.env
+.env.*
+
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local app data (accounts, password hashes, friends, groups)
+app.db
+friends.db
+*.db-journal
+
+# Output from seed/test runs against your own Nessie key
+deposits_log.json
+purchases_log.json
+merchants.json
+
+# Frontend build output (also covered by frontend/.gitignore)
+node_modules/
+dist/
