@@ -40,8 +40,8 @@ import nessie
 from auth import hash_password
 
 HERE = Path(__file__).parent
-DEMO_BANK = HERE / "demo_bank.json"
-BASELINE = HERE / "demo_baseline.db"
+DEMO_BANK = db.DATA_DIR / "demo_bank.json"
+BASELINE = db.DATA_DIR / "demo_baseline.db"
 DEMO_PASSWORD = "demo1234"
 
 END = date.today() - timedelta(days=1)       # history ends yesterday
@@ -132,10 +132,39 @@ def stamp(d: date, hour: int = 15) -> str:
     return datetime.combine(d, time(hour), tzinfo=timezone.utc).isoformat(timespec="seconds")
 
 
-def build_history(p, accounts, merchants, user_id, start=None, end=None):
+def build_history(p, accounts, merchants, user_id, start=None, end=None, workers=1, progress=None):
     """Create a persona's transactions in Nessie, day by day, never going below $50.
-    start/end default to the demo window (about 3 months ending yesterday)."""
+    start/end default to the demo window (about 3 months ending yesterday).
+
+    workers > 1 sends that many Nessie writes at once (much faster; order doesn't
+    matter because balances are worked out from all transactions together).
+    progress, if given, is a dict kept up to date as {"done": n, "total": n}."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    count_lock = threading.Lock()
     start, end = start or START, end or END
+    pool = ThreadPoolExecutor(max_workers=workers) if workers > 1 else None
+    jobs = []
+    if progress is not None:
+        progress.update(done=0, total=0)
+
+    def _finished(_job):
+        if progress is not None:
+            with count_lock:
+                progress["done"] = progress.get("done", 0) + 1
+
+    def do(fn, *args, **kwargs):
+        """Run one Nessie write now, or queue it on the pool."""
+        if progress is not None:
+            progress["total"] = progress.get("total", 0) + 1
+        if pool is None:
+            fn(*args, **kwargs)
+            _finished(None)
+            return
+        job = pool.submit(fn, *args, **kwargs)
+        job.add_done_callback(_finished)
+        jobs.append(job)
+
     rng = random.Random(p["seed"])
     by_type = {t: aid for (t, _, _), aid in zip(p["accounts"], accounts)}
     account_names = {aid: nick for (_, nick, _), aid in zip(p["accounts"], accounts)}
@@ -155,12 +184,12 @@ def build_history(p, accounts, merchants, user_id, start=None, end=None):
         pay = p["pay"]
         if ("every" in pay and (day - start).days % pay["every"] == pay["first_offset"]) or \
            (day.day in pay.get("days_of_month", ())):
-            banking.deposit(checking, pay["amount"] * 100, pay["desc"], user_id=user_id, source="seed", when=when)
+            do(banking.deposit, checking, pay["amount"] * 100, pay["desc"], user_id=user_id, source="seed", when=when)
             balance[checking] += pay["amount"]; count += 1
 
         for dom, name, amount in p["bills"]:
             if day.day == dom and can_spend(checking, amount):
-                banking.create("bills", checking, {"status": "completed", "payee": name.split(" · ")[-1],
+                do(banking.create, "bills", checking, {"status": "completed", "payee": name.split(" · ")[-1],
                                "nickname": name, "payment_date": when, "recurring_date": dom,
                                "payment_amount": amount}, user_id=user_id, source="seed",
                                cents=round(amount * 100), description=name)
@@ -169,12 +198,12 @@ def build_history(p, accounts, merchants, user_id, start=None, end=None):
         for dom, to_type, amount, desc in p["transfers"]:
             if day.day == dom and to_type in by_type and can_spend(checking, amount):
                 to = by_type[to_type]
-                banking.transfer(checking, to, amount * 100, desc, account_names, user_id=user_id, source="seed", when=when)
+                do(banking.transfer, checking, to, amount * 100, desc, account_names, user_id=user_id, source="seed", when=when)
                 money_out(checking, amount * 100); balance[to] += amount; count += 1
 
         every, atm = p["atm"]
         if (day - start).days % every == every // 2 and can_spend(checking, atm):
-            banking.withdraw(checking, atm * 100, "ATM withdrawal", user_id=user_id, source="seed", when=when)
+            do(banking.withdraw, checking, atm * 100, "ATM withdrawal", user_id=user_id, source="seed", when=when)
             money_out(checking, atm * 100); count += 1
 
         for names, per_week, low, high, acct_type in p["spend"]:
@@ -183,10 +212,14 @@ def build_history(p, accounts, merchants, user_id, start=None, end=None):
                 cents = rng.randint(low * 100, high * 100)
                 aid = by_type.get(acct_type, checking)
                 if can_spend(aid, cents / 100):
-                    banking.purchase(aid, merchants[name], cents, rng.choice(NOTES[name]),
+                    do(banking.purchase, aid, merchants[name], cents, rng.choice(NOTES[name]),
                                      user_id=user_id, source="seed", when=when)
                     money_out(aid, cents); count += 1
         day += timedelta(days=1)
+    if pool is not None:
+        pool.shutdown(wait=True)
+        for job in jobs:
+            job.result()  # re-raise the first failure, if any
     return count, balance
 
 
@@ -203,7 +236,7 @@ def create_merchants() -> dict:
     return merchants
 
 
-def setup(force: bool = False):
+def setup(force: bool = False, workers: int = 8):
     if DEMO_BANK.exists() and not force:
         print("The demo is already set up (demo_bank.json exists), so nothing was changed.")
         print("To put the demo back to its baseline, run reset_demo.py.")
@@ -245,7 +278,7 @@ def setup(force: bool = False):
             conn.execute("INSERT INTO bank_links (user_id, nessie_customer_id, linked_at) VALUES (?, ?, ?)",
                          (uid, customer_id, stamp(START, 12)))
 
-        count, balance = build_history(p, accounts, merchants, uid)
+        count, balance = build_history(p, accounts, merchants, uid, workers=workers)
         saved["people"][p["username"]] = {"customer_id": customer_id,
                                           "accounts": {nick: aid for (_, nick, _), aid in zip(p["accounts"], accounts)}}
         print(f"@{p['username']}: bank profile {customer_id}, {count} transactions, "
@@ -265,6 +298,11 @@ def setup(force: bool = False):
         goal_id = conn.execute(
             "INSERT INTO goals (group_id, title, target_cents, deadline, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (gid, GROUP["goal"], GROUP["target_cents"], deadline.isoformat(), maya, stamp(goal_created, 14))).lastrowid
+        # Goal rules (groups.py): weekly payments, and an honor-code dare for missing one.
+        conn.execute("UPDATE goals SET frequency = 'weekly', penalty_type = 'honor', penalty_dare = ?, pace = 'Steady', "
+                     "realism_score = 8, realism_note = ? WHERE id = ?",
+                     ("Buy the group's next round of coffee",
+                      "About $42 a week each fits comfortably alongside part-time paychecks.", goal_id))
         log = [(maya, "create", "Maya Johnson created the group", stamp(goal_created, 14)),
                (maya, "goal", f"Maya Johnson created the goal “{GROUP['goal']}”: $3,000.00 by {deadline:%b %d, %Y}", stamp(goal_created, 14))]
         for i, (uid, name) in enumerate(((maya, "Maya Johnson"), (carlos, "Carlos Rivera"), (priya, "Priya Patel"))):
@@ -301,6 +339,59 @@ def setup(force: bool = False):
         conn.execute("VACUUM INTO ?", (str(BASELINE),))
     print(f"Saved the baseline ({BASELINE.name}, {DEMO_BANK.name}). reset_demo.py returns to it any time.")
     print(f"\nDone! Log in as maya, carlos or priya (password {DEMO_PASSWORD}).")
+
+
+# ---------- Automatic setup when the server starts ----------
+# Railway starts every deploy with an empty app.db, so the demo users (and the
+# one-click demo logins) would be missing until someone ran this script by hand.
+# server.py calls ensure_demo() at startup instead:
+#   - demo users already there              -> nothing to do
+#   - empty app.db + a saved baseline        -> restore the baseline (instant)
+#   - empty app.db and no baseline           -> build the demo in the background (~1 min)
+#   - real profiles but no demo users        -> leave everything alone
+# Only in demo mode (FINAPP_DEV not 0). FINAPP_AUTO_DEMO=0 turns it off.
+demo_status = {"status": "unknown"}   # ready | building | failed | off | missing
+
+
+def _has_users(conn, demo_only=False) -> bool:
+    sql = "SELECT 1 FROM users" + (" WHERE is_demo = 1" if demo_only else "") + " LIMIT 1"
+    return conn.execute(sql).fetchone() is not None
+
+
+def ensure_demo():
+    import os
+    import threading
+    import auth
+    if not auth.DEV_MODE or os.getenv("FINAPP_AUTO_DEMO", "1") == "0":
+        demo_status["status"] = "off"
+        return
+    with db.connect() as conn:
+        has_demo, has_any = _has_users(conn, demo_only=True), _has_users(conn)
+    if has_demo:
+        demo_status["status"] = "ready"
+        return
+    if has_any:
+        demo_status["status"] = "missing"
+        print("Demo users are missing but other profiles exist, so the demo wasn't set up automatically. Run demo_setup.py.")
+        return
+    if BASELINE.exists():
+        shutil.copyfile(BASELINE, db.DB_PATH)
+        db.init()
+        demo_status["status"] = "ready"
+        print("Restored the demo baseline (maya, carlos, priya).")
+        return
+
+    def build():
+        try:
+            setup(force=True)
+            demo_status["status"] = "ready"
+        except Exception as e:
+            demo_status["status"] = "failed"
+            print(f"Automatic demo setup failed: {e}")
+
+    demo_status["status"] = "building"
+    print("No demo users yet: building them in the background (about a minute)...")
+    threading.Thread(target=build, daemon=True, name="demo-setup").start()
 
 
 if __name__ == "__main__":

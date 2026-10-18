@@ -18,7 +18,7 @@ const sinceDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { m
 
 function Avatar({ person }: { person: Person }) {
   return (
-    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#d9eadf] text-xs font-bold text-[#235749]">
+    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#FFF0E2] text-xs font-bold text-[#FF8A5B]">
       {initials(person.display_name)}
     </span>
   );
@@ -26,25 +26,25 @@ function Avatar({ person }: { person: Person }) {
 
 function PersonRow({ person, detail, children }: { person: Person; detail?: string; children?: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3 border-t border-[#edf0ef] px-5 py-3.5 first:border-t-0 sm:px-6">
+    <div className="flex items-center gap-3 border-t border-[#DADDF1] px-5 py-3.5 first:border-t-0 sm:px-6">
       <Avatar person={person} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-bold">
-          {fullName(person)} <span className="font-semibold text-[#8a9893]">@{person.username}</span>
+          {fullName(person)} <span className="font-semibold text-[#8790AE]">@{person.username}</span>
         </p>
-        {detail && <p className="text-[10px] text-[#8a9893]">{detail}</p>}
+        {detail && <p className="text-[10px] text-[#8790AE]">{detail}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
     </div>
   );
 }
 
-const primaryBtn = "rounded-lg bg-[#173f35] px-3 py-2 text-[11px] font-bold text-white transition hover:bg-[#0f2c25] disabled:opacity-50";
-const secondaryBtn = "rounded-lg border border-[#d8e0dd] bg-white px-3 py-2 text-[11px] font-bold text-[#31433e] transition hover:bg-[#f3f6f5] disabled:opacity-50";
-const quietBtn = "rounded-lg px-2 py-2 text-[11px] font-bold text-[#8a9893] transition hover:text-[#b4502f] disabled:opacity-50";
+const primaryBtn = "rounded-lg bg-[#275992] px-3 py-2 text-[11px] font-bold text-white transition hover:bg-[#1F4777] disabled:opacity-50";
+const secondaryBtn = "rounded-lg border border-[#DADDF1] bg-white px-3 py-2 text-[11px] font-bold text-[#275992] transition hover:bg-[#E2E5F4] disabled:opacity-50";
+const quietBtn = "rounded-lg px-2 py-2 text-[11px] font-bold text-[#8790AE] transition hover:text-[#b4502f] disabled:opacity-50";
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="px-5 py-6 text-xs text-[#8a9893] sm:px-6">{children}</p>;
+  return <p className="px-5 py-6 text-xs text-[#8790AE] sm:px-6">{children}</p>;
 }
 
 export default function Friends({ myUsername }: { myUsername: string }) {
@@ -116,14 +116,14 @@ export default function Friends({ myUsername }: { myUsername: string }) {
   return (
     <div>
       <div className="mb-7">
-        <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#71817c]">Friends</p>
+        <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#6F789A]">Friends</p>
         <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">Your people</h1>
-        <p className="mt-1 text-sm text-[#697975]">Add friends now so you can save toward shared goals together.</p>
+        <p className="mt-1 text-sm text-[#6F789A]">Add friends now so you can save toward shared goals together.</p>
       </div>
 
       {message && (
         <div
-          className={`mb-5 rounded-xl border px-4 py-3 text-xs font-semibold ${message.kind === "ok" ? "border-[#bfe3d3] bg-[#eefaf4] text-[#146d57]" : "border-[#f3c9bd] bg-[#fff4f0] text-[#9a3b22]"}`}
+          className={`mb-5 rounded-xl border px-4 py-3 text-xs font-semibold ${message.kind === "ok" ? "border-[#B8E6D6] bg-[#E3F7F0] text-[#209E86]" : "border-[#f3c9bd] bg-[#fff4f0] text-[#9a3b22]"}`}
           role={message.kind === "error" ? "alert" : "status"}
         >
           {message.text}
@@ -186,10 +186,10 @@ export default function Friends({ myUsername }: { myUsername: string }) {
             <form className="mt-4 flex gap-2" onSubmit={sendRequest}>
               <label className="relative block flex-1">
                 <span className="sr-only">Friend's username</span>
-                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-xs text-[#8a9893]">@</span>
+                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-xs text-[#8790AE]">@</span>
                 <input
                   autoCapitalize="none"
-                  className="w-full rounded-xl border border-[#d8e0dd] bg-white py-2.5 pl-8 pr-4 text-xs outline-none focus:border-[#357866]"
+                  className="w-full rounded-xl border border-[#DADDF1] bg-white py-2.5 pl-8 pr-4 text-xs outline-none focus:border-[#95A1D8]"
                   maxLength={21}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="username"
@@ -202,9 +202,9 @@ export default function Friends({ myUsername }: { myUsername: string }) {
                 {busy === "add" ? "Sending…" : "Send request"}
               </button>
             </form>
-            <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-[#f5f8f7] px-4 py-3">
-              <p className="text-[11px] text-[#697975]">
-                Your username is <strong className="text-[#14211d]">@{myUsername}</strong>. Share it so friends can add you.
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-[#F4F5FB] px-4 py-3">
+              <p className="text-[11px] text-[#6F789A]">
+                Your username is <strong className="text-[#275992]">@{myUsername}</strong>. Share it so friends can add you.
               </p>
               <button className={secondaryBtn} onClick={copyUsername} type="button">
                 {copied ? "Copied" : "Copy"}

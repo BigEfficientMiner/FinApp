@@ -27,6 +27,10 @@ Activity log
 Every transaction the app creates in Nessie is recorded in app.db
 (`nessie_activity`), so reset_demo.py can delete exactly what a demo run added.
 """
+import threading
+import time
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 import db
@@ -40,6 +44,40 @@ TYPES = ("deposits", "withdrawals", "purchases", "transfers", "bills")
 
 _merchant_cache: dict = {}
 
+# ---------- Speed ----------
+# Nessie is slow (~0.5-1.5 s per call) and one ledger needs ~16 calls, so:
+#  1. the calls for a ledger run in parallel instead of one after another,
+#  2. a finished ledger is reused for LEDGER_TTL seconds by every page
+#     (dashboard, statement, insights, goals) and by concurrent requests,
+#  3. any write the app makes (see create/hide/remove) throws the cache away,
+#     so your own changes show up on the very next request.
+LEDGER_TTL = 30          # seconds; changes made outside the app show up within this
+CUSTOMER_TTL = 600       # names/addresses barely change
+_pool = ThreadPoolExecutor(max_workers=12, thread_name_prefix="nessie")
+_ledger_cache: dict = {}             # customer_id -> (loaded_at, ledger)
+_customer_cache: dict = {}           # customer_id -> (loaded_at, customer)
+_ledger_locks: dict = defaultdict(threading.Lock)
+_cache_guard = threading.Lock()
+_generation = 0                      # bumped on every write
+
+
+def invalidate():
+    """Forget cached ledgers (called after the app writes to Nessie)."""
+    global _generation
+    with _cache_guard:
+        _generation += 1
+        _ledger_cache.clear()
+
+
+def customer(customer_id: str) -> dict:
+    """Nessie customer (name, address), cached."""
+    hit = _customer_cache.get(customer_id)
+    if hit and time.monotonic() - hit[0] < CUSTOMER_TTL:
+        return hit[1]
+    c = nessie.get_customer(customer_id)
+    _customer_cache[customer_id] = (time.monotonic(), c)
+    return c
+
 
 # ---------- Reading ----------
 
@@ -50,6 +88,9 @@ def get_list(path: str) -> list:
     except nessie.NessieError:
         return []
     return result if isinstance(result, list) else []
+
+
+_get_list = get_list  # module-level name that account_transactions' local helper falls back to
 
 
 def merchant(merchant_id) -> dict:
@@ -93,12 +134,20 @@ def _kind(description: str, fallback: str) -> str:
     return fallback
 
 
-def account_transactions(account: dict, names: dict, hidden: set | None = None) -> list:
-    """Every transaction on one account as statement lines (amount > 0 = money in)."""
+def account_transactions(account: dict, names: dict, hidden: set | None = None, fetched: dict | None = None) -> list:
+    """Every transaction on one account as statement lines (amount > 0 = money in).
+
+    `fetched` ({"deposits": [...], ...}) passes in lists already downloaded;
+    any type missing from it is fetched here."""
     hidden = hidden_ids() if hidden is None else hidden
     aid = account["_id"]
     base = {"account_id": aid, "account": account.get("nickname") or account.get("type", "Account")}
     lines = []
+    fetched = fetched or {}
+
+    def get_list(path: str) -> list:  # noqa: F811 - prefer what was already fetched
+        kind = path.rsplit("/", 1)[-1]
+        return fetched[kind] if kind in fetched else _get_list(path)
 
     for d in get_list(f"/accounts/{aid}/deposits"):
         lines.append({**base, "id": d.get("_id"), "type": _kind(d.get("description") or "", "Deposit"),
@@ -140,17 +189,52 @@ def account_transactions(account: dict, names: dict, hidden: set | None = None) 
     return [line for line in lines if line["date"] is not None and line["id"] not in hidden]
 
 
+def _copy(ledger: dict) -> dict:
+    """Callers may edit lines (e.g. statement adds balance_after), so hand out copies."""
+    return {"accounts": [dict(a) for a in ledger["accounts"]], "lines": [dict(l) for l in ledger["lines"]]}
+
+
 def customer_ledger(customer_id: str) -> dict:
     """All accounts with their transactions and current balances.
 
     Returns {"accounts": [...], "lines": [...]} where each account has
-    opening_balance, balance (current) and each line has amount and date."""
+    opening_balance, balance (current) and each line has amount and date.
+    Cached for LEDGER_TTL seconds; simultaneous requests share one download."""
+    hit = _ledger_cache.get(customer_id)
+    if hit and time.monotonic() - hit[0] < LEDGER_TTL:
+        return _copy(hit[1])
+    with _cache_guard:
+        lock = _ledger_locks[customer_id]
+    with lock:  # if another request is already downloading this ledger, wait for it
+        hit = _ledger_cache.get(customer_id)
+        if hit and time.monotonic() - hit[0] < LEDGER_TTL:
+            return _copy(hit[1])
+        generation = _generation
+        ledger = _load_ledger(customer_id)
+        with _cache_guard:
+            if generation == _generation:  # skip caching if a write happened mid-download
+                _ledger_cache[customer_id] = (time.monotonic(), ledger)
+        return _copy(ledger)
+
+
+def _load_ledger(customer_id: str) -> dict:
     accounts = nessie.get_customer_accounts(customer_id) or []
     names = {a["_id"]: a.get("nickname") or a.get("type") for a in accounts}
-    lines, out = [], []
     hidden = hidden_ids()
+
+    # Every account x transaction type at once, instead of one after another.
+    jobs = {(a["_id"], kind): _pool.submit(_get_list, f"/accounts/{a['_id']}/{kind}") for a in accounts for kind in TYPES}
+    fetched = defaultdict(dict)
+    for (aid, kind), job in jobs.items():
+        fetched[aid][kind] = job.result()
+
+    # Look up merchants we haven't seen yet, also in parallel.
+    new_merchants = {p.get("merchant_id") for f in fetched.values() for p in f.get("purchases", [])} - set(_merchant_cache) - {None, ""}
+    list(_pool.map(merchant, new_merchants))
+
+    lines, out = [], []
     for a in accounts:
-        mine = account_transactions(a, names, hidden)
+        mine = account_transactions(a, names, hidden, fetched[a["_id"]])
         lines.extend(mine)
         stored = float(a.get("balance") or 0)
         current = stored if NESSIE_UPDATES_BALANCE else stored + sum(l["amount"] for l in mine)
@@ -182,6 +266,7 @@ def _log(user_id, source, nessie_type, nessie_id, account_id, cents, description
 def create(nessie_type: str, account_id: str, body: dict, *, user_id=None, source="simulation", cents=0, description="") -> str:
     """POST a transaction to Nessie, log it, and return its ID."""
     nessie_id = nessie._created_id(nessie._request("POST", f"/accounts/{account_id}/{nessie_type}", body))
+    invalidate()
     _log(user_id, source, nessie_type, nessie_id, account_id, cents, description)
     return nessie_id
 
@@ -220,6 +305,7 @@ def hide(nessie_type: str, nessie_id: str, reason: str):
     with db.connect() as conn:
         conn.execute("INSERT OR IGNORE INTO nessie_hidden (nessie_id, nessie_type, hidden_at, reason) VALUES (?, ?, ?, ?)",
                      (nessie_id, nessie_type, db.now(), reason))
+    invalidate()
 
 
 def remove(nessie_type: str, nessie_id: str, reason: str = "undone") -> str:
@@ -230,6 +316,7 @@ def remove(nessie_type: str, nessie_id: str, reason: str = "undone") -> str:
         try:
             nessie._request("DELETE", f"/{nessie_type}/{nessie_id}")
             how = "deleted"
+            invalidate()
         except nessie.NessieError:
             pass
     if how == "hidden":

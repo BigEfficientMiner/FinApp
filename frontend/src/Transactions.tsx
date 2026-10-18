@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "./api";
+import { api, cached } from "./api";
+
+/** The statement request for a period/account (App.tsx uses it to preload the default view). */
+export const statementPath = (period: string, accountId = "") =>
+  `/api/me/statement?period=${period}&account_id=${encodeURIComponent(accountId)}`;
 
 type Line = {
   id: string;
@@ -40,17 +44,17 @@ const longDate = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString
 const dayHeading = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
 const TYPE_STYLE: Record<Line["type"], string> = {
-  Deposit: "bg-[#e5f5ed] text-[#167454]",
+  Deposit: "bg-[#E3F7F0] text-[#209E86]",
   Withdrawal: "bg-[#fff0e9] text-[#b4502f]",
-  Purchase: "bg-[#eef1f4] text-[#4f5f73]",
-  Transfer: "bg-[#f0eaff] text-[#6c499e]",
+  Purchase: "bg-[#E2E5F4] text-[#5F698D]",
+  Transfer: "bg-[#784CCB33] text-[#275992]",
   Bill: "bg-[#fff7e6] text-[#8a5a12]",
-  Goal: "bg-[#173f35] text-white",
+  Goal: "bg-[#275992] text-white",
 };
 
 const select =
-  "appearance-none rounded-xl border border-[#d8e0dd] bg-white py-2.5 pl-4 pr-9 text-xs font-bold text-[#31433e] shadow-sm outline-none focus:border-[#357866]";
-const secondaryBtn = "rounded-xl border border-[#d8e0dd] bg-white px-4 py-2.5 text-xs font-bold text-[#31433e] shadow-sm transition hover:bg-[#f3f6f5] disabled:opacity-50";
+  "appearance-none rounded-xl border border-[#DADDF1] bg-white py-2.5 pl-4 pr-9 text-xs font-bold text-[#275992] shadow-sm outline-none focus:border-[#95A1D8]";
+const secondaryBtn = "rounded-xl border border-[#DADDF1] bg-white px-4 py-2.5 text-xs font-bold text-[#275992] shadow-sm transition hover:bg-[#E2E5F4] disabled:opacity-50";
 
 function toCsv(s: Statement) {
   const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
@@ -61,12 +65,14 @@ function toCsv(s: Statement) {
   return rows.map((r) => r.map(esc).join(",")).join("\r\n");
 }
 
-export default function Transactions() {
+// `embedded`: shown as a section inside another page (Insights) rather than as its own page.
+export default function Transactions({ embedded = false }: { embedded?: boolean }) {
   const [period, setPeriod] = useState("last_30_days");
   const [accountId, setAccountId] = useState("");
-  const [data, setData] = useState<Statement | null>(null);
+  // Start from the last statement we saw (instant when coming back to this tab).
+  const [data, setData] = useState<Statement | null>(() => cached<Statement>(statementPath("last_30_days")) ?? null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !cached(statementPath("last_30_days")));
   const [sims, setSims] = useState<Simulation[]>([]);
   const [simBusy, setSimBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -74,8 +80,13 @@ export default function Transactions() {
 
   const load = useCallback(
     (quiet = false) => {
-      if (!quiet) setLoading(true);
-      return api<Statement>("GET", `/api/me/statement?period=${period}&account_id=${encodeURIComponent(accountId)}`)
+      const path = statementPath(period, accountId);
+      if (!quiet) {
+        const seen = cached<Statement>(path);
+        if (seen) setData(seen); // show it now, refresh quietly
+        else setLoading(true);
+      }
+      return api<Statement>("GET", path)
         .then((next) => {
           setData((prev) => {
             // Briefly highlight lines that just appeared (live updates).
@@ -155,12 +166,16 @@ export default function Transactions() {
     <div>
       <div className="mb-7 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
-          <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#71817c]">Transactions</p>
-          <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">Bank statement</h1>
-          <p className="mt-1 flex items-center gap-2 text-sm text-[#697975]">
+          <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#6F789A]">Transactions</p>
+          {embedded ? (
+            <h2 className="text-[22px] font-bold tracking-[-0.04em] sm:text-[26px]">Bank statement</h2>
+          ) : (
+            <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">Bank statement</h1>
+          )}
+          <p className="mt-1 flex items-center gap-2 text-sm text-[#6F789A]">
             <span className="relative flex size-2">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#2f8a6f] opacity-60" />
-              <span className="relative inline-flex size-2 rounded-full bg-[#2f8a6f]" />
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#FF8A5B] opacity-60" />
+              <span className="relative inline-flex size-2 rounded-full bg-[#FF8A5B]" />
             </span>
             Live from your bank. Updates on its own.
           </p>
@@ -176,7 +191,7 @@ export default function Transactions() {
                 </option>
               ))}
             </select>
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#657771]">▼</span>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#6F789A]">▼</span>
           </label>
           <label className="relative">
             <span className="sr-only">Statement period</span>
@@ -187,7 +202,7 @@ export default function Transactions() {
                 </option>
               ))}
             </select>
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#657771]">▼</span>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-[#6F789A]">▼</span>
           </label>
           <button className={secondaryBtn} disabled={!data || data.transactions.length === 0} onClick={downloadCsv}>
             Download CSV
@@ -205,9 +220,9 @@ export default function Transactions() {
       )}
 
       {sims.length > 0 && (
-        <section className="mb-5 rounded-[20px] border border-dashed border-[#c9d6d1] bg-white/60 p-4 print:hidden">
+        <section className="mb-5 rounded-[20px] border border-dashed border-[#C4CAE3] bg-white/60 p-4 print:hidden">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="mr-1 text-[11px] font-bold uppercase tracking-[0.1em] text-[#587068]">Demo · simulate</span>
+            <span className="mr-1 text-[11px] font-bold uppercase tracking-[0.1em] text-[#6F789A]">Demo · simulate</span>
             {sims.map((s) => (
               <button className={`${secondaryBtn} !py-2`} disabled={simBusy !== null} key={s.kind} onClick={() => simulate(s)}>
                 {simBusy === s.kind ? "…" : `${s.label} ${s.type === "deposit" ? "+" : "−"}${money(s.amount)}`}
@@ -215,7 +230,7 @@ export default function Transactions() {
             ))}
           </div>
           {toast && (
-            <p className={`mt-3 text-xs font-semibold ${toast.kind === "ok" ? "text-[#146d57]" : "text-[#9a3b22]"}`} role="status">
+            <p className={`mt-3 text-xs font-semibold ${toast.kind === "ok" ? "text-[#209E86]" : "text-[#9a3b22]"}`} role="status">
               {toast.text}
             </p>
           )}
@@ -231,7 +246,7 @@ export default function Transactions() {
                 <p className="eyebrow">Statement for</p>
                 <p className="mt-1 text-lg font-bold">{data.customer.name}</p>
                 {addr && (addr.street_name || addr.city) && (
-                  <p className="text-xs text-[#697975]">
+                  <p className="text-xs text-[#6F789A]">
                     {[addr.street_number, addr.street_name].filter(Boolean).join(" ")}
                     {addr.city ? `, ${addr.city}` : ""}
                     {addr.state ? `, ${addr.state}` : ""} {addr.zip}
@@ -243,19 +258,19 @@ export default function Transactions() {
                 <p className="mt-1 text-sm font-bold">
                   {longDate(data.period.start)} – {longDate(data.period.end)}
                 </p>
-                <p className="text-xs text-[#697975]">{selected ? `${selected.nickname} (${selected.type})` : "All accounts"}</p>
+                <p className="text-xs text-[#6F789A]">{selected ? `${selected.nickname} (${selected.type})` : "All accounts"}</p>
               </div>
             </div>
 
-            <div className="mt-5 grid grid-cols-2 gap-3 border-t border-[#edf0ef] pt-5 md:grid-cols-5">
+            <div className="mt-5 grid grid-cols-2 gap-3 border-t border-[#DADDF1] pt-5 md:grid-cols-5">
               <div>
                 <p className="eyebrow">{selected?.type === "Credit Card" ? "Card balance" : "Balance now"}</p>
                 <p className="mt-1 text-xl font-bold tracking-[-0.03em]">{money(selected ? selected.balance : data.balance)}</p>
-                {!selected && <p className="text-[10px] text-[#8a9893]">Checking + savings</p>}
+                {!selected && <p className="text-[10px] text-[#8790AE]">Checking + savings</p>}
               </div>
               <div>
                 <p className="eyebrow">Money in</p>
-                <p className="mt-1 text-xl font-bold tracking-[-0.03em] text-[#167454]">{money(data.summary.money_in)}</p>
+                <p className="mt-1 text-xl font-bold tracking-[-0.03em] text-[#209E86]">{money(data.summary.money_in)}</p>
               </div>
               <div>
                 <p className="eyebrow">Money out</p>
@@ -263,7 +278,7 @@ export default function Transactions() {
               </div>
               <div>
                 <p className="eyebrow">Net</p>
-                <p className={`mt-1 text-xl font-bold tracking-[-0.03em] ${data.summary.net >= 0 ? "text-[#167454]" : "text-[#b4502f]"}`}>{signed(data.summary.net)}</p>
+                <p className={`mt-1 text-xl font-bold tracking-[-0.03em] ${data.summary.net >= 0 ? "text-[#209E86]" : "text-[#b4502f]"}`}>{signed(data.summary.net)}</p>
               </div>
               <div>
                 <p className="eyebrow">Transactions</p>
@@ -274,8 +289,8 @@ export default function Transactions() {
             {!selected && data.accounts.length > 1 && (
               <div className="mt-4 flex flex-wrap gap-2">
                 {data.accounts.map((a) => (
-                  <button className="rounded-full border border-[#e0e6e4] px-3 py-1.5 text-[11px] text-[#587068] transition hover:bg-[#f3f6f5]" key={a.id} onClick={() => setAccountId(a.id)}>
-                    {a.nickname}: <strong className="text-[#14211d]">{money(a.balance)}</strong>
+                  <button className="rounded-full border border-[#DADDF1] px-3 py-1.5 text-[11px] text-[#6F789A] transition hover:bg-[#E2E5F4]" key={a.id} onClick={() => setAccountId(a.id)}>
+                    {a.nickname}: <strong className="text-[#275992]">{money(a.balance)}</strong>
                   </button>
                 ))}
               </div>
@@ -286,7 +301,7 @@ export default function Transactions() {
             {data.transactions.length === 0 ? (
               <div className="px-6 py-10 text-center">
                 <p className="text-sm font-bold">{data.summary.all_time_count === 0 ? "No transactions yet" : "Nothing in this period"}</p>
-                <p className="mt-1 text-xs text-[#8a9893]">
+                <p className="mt-1 text-xs text-[#8790AE]">
                   {data.summary.all_time_count === 0
                     ? "This bank profile doesn't have any deposits, purchases or other activity yet."
                     : "Try a longer period, like “All time”."}
@@ -296,7 +311,7 @@ export default function Transactions() {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[680px] text-left">
                   <thead>
-                    <tr className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#7a8984]">
+                    <tr className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#6F789A]">
                       <th className="px-6 py-3.5 font-bold">Description</th>
                       <th className="px-3 py-3.5 font-bold">Category</th>
                       <th className="px-3 py-3.5 font-bold">Account</th>
@@ -307,23 +322,23 @@ export default function Transactions() {
                   {days.map((day) => (
                     <tbody key={day.date}>
                       <tr>
-                        <td className="bg-[#f6f8f7] px-6 py-2 text-[11px] font-bold text-[#587068]" colSpan={cols}>
+                        <td className="bg-[#F4F5FB] px-6 py-2 text-[11px] font-bold text-[#6F789A]" colSpan={cols}>
                           {dayHeading(day.date)}
                         </td>
                       </tr>
                       {day.lines.map((t) => (
-                        <tr className={`border-t border-[#edf0ef] transition-colors duration-700 ${highlight.has(t.id) ? "bg-[#eefaf4]" : ""}`} key={`${t.type}-${t.id}`}>
+                        <tr className={`border-t border-[#DADDF1] transition-colors duration-700 ${highlight.has(t.id) ? "bg-[#E3F7F0]" : ""}`} key={`${t.type}-${t.id}`}>
                           <td className="px-6 py-3">
                             <div className="flex items-center gap-2.5">
                               <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${TYPE_STYLE[t.type] ?? TYPE_STYLE.Purchase}`}>{t.type}</span>
                               <span className="text-xs font-semibold">{t.description}</span>
-                              {highlight.has(t.id) && <span className="rounded-full bg-[#2f8a6f] px-1.5 py-0.5 text-[9px] font-bold text-white">NEW</span>}
+                              {highlight.has(t.id) && <span className="rounded-full bg-[#FF8A5B] px-1.5 py-0.5 text-[9px] font-bold text-white">NEW</span>}
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-xs text-[#6f7e79]">{t.category ?? "—"}</td>
-                          <td className="px-3 py-3 text-xs text-[#6f7e79]">{t.account}</td>
-                          <td className={`px-3 py-3 text-right text-xs font-bold ${t.amount > 0 ? "text-[#167454]" : ""}`}>{signed(t.amount)}</td>
-                          {single && <td className="px-6 py-3 text-right text-xs text-[#587068]">{money(t.balance_after ?? 0)}</td>}
+                          <td className="px-3 py-3 text-xs text-[#6F789A]">{t.category ?? "—"}</td>
+                          <td className="px-3 py-3 text-xs text-[#6F789A]">{t.account}</td>
+                          <td className={`px-3 py-3 text-right text-xs font-bold ${t.amount > 0 ? "text-[#209E86]" : "text-[#F6C28E]"}`}>{signed(t.amount)}</td>
+                          {single && <td className="px-6 py-3 text-right text-xs text-[#6F789A]">{money(t.balance_after ?? 0)}</td>}
                         </tr>
                       ))}
                     </tbody>
@@ -332,7 +347,7 @@ export default function Transactions() {
               </div>
             )}
           </section>
-          <p className="mt-4 text-center text-[10px] text-[#8c9995]">Data from your bank via the Nessie API. Balances are the opening balance plus every transaction.</p>
+          <p className="mt-4 text-center text-[10px] text-[#8790AE]">Data from your bank via the Nessie API. Balances are the opening balance plus every transaction.</p>
         </div>
       )}
     </div>
