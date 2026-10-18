@@ -3,9 +3,9 @@ import { api } from "./api";
 import { ConnectBankLoading } from "./Loading";
 
 const input =
-  "w-full rounded-xl border border-[#d8e0dd] bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#357866]";
-const label = "mb-1.5 block text-[11px] font-bold uppercase tracking-[0.1em] text-[#587068]";
-const primaryBtn = "rounded-xl bg-[#173f35] px-5 py-3 text-xs font-bold text-white transition hover:bg-[#0f2c25] disabled:opacity-60";
+  "w-full rounded-xl border border-[#DADDF1] bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#95A1D8]";
+const label = "mb-1.5 block text-[11px] font-bold uppercase tracking-[0.1em] text-[#6F789A]";
+const primaryBtn = "rounded-xl bg-[#275992] px-5 py-3 text-xs font-bold text-white transition hover:bg-[#1F4777] disabled:opacity-60";
 
 type FieldProps = { name: string; title: string; value: string; onChange: (v: string) => void } & Omit<
   React.InputHTMLAttributes<HTMLInputElement>,
@@ -46,13 +46,13 @@ export function LinkBankForm({ onLinked }: { onLinked: () => void }) {
           }}
         />
       )}
-      <div className="mb-1 grid size-11 place-items-center rounded-2xl bg-[#e7f1ed] text-[#276858]">
+      <div className="mb-1 grid size-11 place-items-center rounded-2xl bg-[#E2E5F4] text-[#276858]">
         <svg aria-hidden="true" fill="none" height="22" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="22">
           <path d="m3 10 9-6 9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18" />
         </svg>
       </div>
       <h2 className="mt-3 text-[22px] font-bold tracking-[-0.035em]">Link your bank</h2>
-      <p className="mt-1 text-sm text-[#697975]">Enter your bank customer ID to connect your bank profile. Your friends never see your bank details.</p>
+      <p className="mt-1 text-sm text-[#6F789A]">Enter your bank customer ID to connect your bank profile. Your friends never see your bank details.</p>
 
       <form className="mt-5 space-y-4" onSubmit={submit}>
         <Field
@@ -64,7 +64,7 @@ export function LinkBankForm({ onLinked }: { onLinked: () => void }) {
           title="Bank customer ID"
           value={customerId}
         />
-        <p className="text-[11px] text-[#8a9893]">Each bank profile can only be linked to one app profile. Keep your ID private, like an account number.</p>
+        <p className="text-[11px] text-[#8790AE]">Each bank profile can only be linked to one app profile. Keep your ID private, like an account number.</p>
         {error && <ErrorBox text={error} />}
         <button className={primaryBtn} disabled={busy} type="submit">
           {busy ? "Linking…" : "Link bank"}
@@ -94,7 +94,7 @@ function OpenBankAccount({ onLinked }: { onLinked: () => void }) {
   }
 
   return (
-    <div className="mt-6 border-t border-[#edf0ef] pt-5">
+    <div className="mt-6 border-t border-[#DADDF1] pt-5">
       {busy && (
         <ConnectBankLoading
           connect={() => api("POST", "/api/bank/create", { style })}
@@ -107,17 +107,17 @@ function OpenBankAccount({ onLinked }: { onLinked: () => void }) {
         />
       )}
       <p className="text-sm font-bold">Don't have a customer ID?</p>
-      <p className="mt-1 text-xs text-[#697975]">Open a new Northstar bank account instead. We'll create it, link it, and fill in about two months of sample activity.</p>
+      <p className="mt-1 text-xs text-[#6F789A]">Open a new Gatorstar bank account instead. We'll create it, link it, and fill in about two months of sample activity.</p>
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
         {STYLES.map((s) => (
           <button
-            className={`rounded-xl border p-3 text-left transition ${style === s.key ? "border-[#357866] bg-[#eef6f2]" : "border-[#d8e0dd] hover:bg-[#f7faf9]"}`}
+            className={`rounded-xl border p-3 text-left transition ${style === s.key ? "border-[#95A1D8] bg-[#E3F7F0]" : "border-[#DADDF1] hover:bg-[#F4F5FB]"}`}
             key={s.key}
             onClick={() => setStyle(s.key)}
             type="button"
           >
             <span className="block text-xs font-bold">{s.title}</span>
-            <span className="mt-1 block text-[11px] leading-4 text-[#697975]">{s.body}</span>
+            <span className="mt-1 block text-[11px] leading-4 text-[#6F789A]">{s.body}</span>
           </button>
         ))}
       </div>
@@ -190,7 +190,7 @@ export default function AccountsPage({ linked, onChange }: { linked: boolean; on
   return (
     <div>
       <div className="mb-7">
-        <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#71817c]">Accounts</p>
+        <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#6F789A]">Accounts</p>
         <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">Your bank</h1>
       </div>
       {!linked ? (
@@ -199,7 +199,7 @@ export default function AccountsPage({ linked, onChange }: { linked: boolean; on
         <section className="panel max-w-[720px]">
           {error && <ErrorBox text={error} />}
           {building && (
-            <p className="mb-4 rounded-xl bg-[#eef6f2] px-3 py-2.5 text-xs font-semibold text-[#276858]">
+            <p className="mb-4 rounded-xl bg-[#E3F7F0] px-3 py-2.5 text-xs font-semibold text-[#276858]">
               Setting up your account history… your dashboard fills in over the next minute or two.
             </p>
           )}
@@ -209,15 +209,15 @@ export default function AccountsPage({ linked, onChange }: { linked: boolean; on
                 <div>
                   <p className="eyebrow">Linked bank profile</p>
                   <p className="mt-1 text-lg font-bold">{bank.name}</p>
-                  <p className="mt-0.5 font-mono text-[11px] text-[#8a9893]">{bank.customer_id}</p>
-                  <p className="mt-1 text-[11px] text-[#8a9893]">
+                  <p className="mt-0.5 font-mono text-[11px] text-[#8790AE]">{bank.customer_id}</p>
+                  <p className="mt-1 text-[11px] text-[#8790AE]">
                     Linked {new Date(bank.linked_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   </p>
                 </div>
                 {confirming ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-[#697975]">Unlink this bank?</span>
-                    <button className="rounded-lg border border-[#d8e0dd] px-3 py-2 text-[11px] font-bold" onClick={() => setConfirming(false)} type="button">
+                    <span className="text-xs text-[#6F789A]">Unlink this bank?</span>
+                    <button className="rounded-lg border border-[#DADDF1] px-3 py-2 text-[11px] font-bold" onClick={() => setConfirming(false)} type="button">
                       Keep it
                     </button>
                     <button className="rounded-lg bg-[#b4502f] px-3 py-2 text-[11px] font-bold text-white" onClick={unlink} type="button">
@@ -225,24 +225,24 @@ export default function AccountsPage({ linked, onChange }: { linked: boolean; on
                     </button>
                   </div>
                 ) : (
-                  <button className="rounded-lg border border-[#d8e0dd] px-3 py-2 text-[11px] font-bold text-[#31433e] hover:bg-[#f3f6f5]" onClick={() => setConfirming(true)} type="button">
+                  <button className="rounded-lg border border-[#DADDF1] px-3 py-2 text-[11px] font-bold text-[#275992] hover:bg-[#E2E5F4]" onClick={() => setConfirming(true)} type="button">
                     Unlink bank
                   </button>
                 )}
               </div>
-              <div className="mt-5 border-t border-[#edf0ef]">
-                {bank.accounts.length === 0 && <p className="py-4 text-xs text-[#8a9893]">No accounts at this bank yet.</p>}
+              <div className="mt-5 border-t border-[#DADDF1]">
+                {bank.accounts.length === 0 && <p className="py-4 text-xs text-[#8790AE]">No accounts at this bank yet.</p>}
                 {bank.accounts.map((a) => (
-                  <div className="flex items-center justify-between border-b border-[#edf0ef] py-3.5 last:border-b-0" key={a.id}>
+                  <div className="flex items-center justify-between border-b border-[#DADDF1] py-3.5 last:border-b-0" key={a.id}>
                     <div>
                       <p className="text-xs font-bold">{a.nickname}</p>
-                      <p className="text-[10px] text-[#8a9893]">{a.type}</p>
+                      <p className="text-[10px] text-[#8790AE]">{a.type}</p>
                     </div>
                     <p className="text-sm font-bold">{a.balance.toLocaleString("en-US", { style: "currency", currency: "USD" })}</p>
                   </div>
                 ))}
               </div>
-              <p className="mt-4 text-[11px] text-[#8a9893]">Unlinking keeps your friends and goals. Only your bank data disappears from the app.</p>
+              <p className="mt-4 text-[11px] text-[#8790AE]">Unlinking keeps your friends and goals. Only your bank data disappears from the app.</p>
             </>
           )}
         </section>

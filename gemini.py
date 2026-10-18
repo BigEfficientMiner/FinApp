@@ -25,7 +25,7 @@ MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 CACHE_SECONDS = 15 * 60          # reuse an answer for the same numbers for 15 minutes
 
 RULES = (
-    "You are a friendly money coach inside a student banking app called Northstar. "
+    "You are a friendly money coach inside a student banking app called Gatorstar. "
     "Use ONLY the numbers in the data you are given; never invent or recalculate figures. "
     "Write in second person, short and specific, with dollar amounts from the data. "
     "Give educational suggestions, not financial or investment advice. "

@@ -1,4 +1,4 @@
-# FinanceApp (Northstar)
+# FinanceApp (Gatorstar)
 
 A hackathon banking app built on Capital One's [Nessie](https://nessieisreal.com) mock banking API.
 

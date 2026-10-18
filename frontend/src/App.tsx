@@ -37,7 +37,11 @@ const PERIODS = [
 
 
 type IconName =
+  | "bag"
   | "bell"
+  | "car"
+  | "cart"
+  | "fork"
   | "card"
   | "chevron"
   | "close"
@@ -56,6 +60,30 @@ type IconName =
   | "wallet";
 
 const iconPaths: Record<IconName, React.ReactNode> = {
+  bag: (
+    <>
+      <path d="M5 8h14l-1 13H6L5 8Z" />
+      <path d="M9 8V6a3 3 0 0 1 6 0v2" />
+    </>
+  ),
+  car: (
+    <>
+      <path d="m5 16 1.5-6h11l1.5 6" />
+      <path d="M3 16h18v4H3zM6 20v1M18 20v1M7.5 10l1-3h7l1 3" />
+    </>
+  ),
+  cart: (
+    <>
+      <path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L21 8H6" />
+      <circle cx="10" cy="20" r="1" />
+      <circle cx="18" cy="20" r="1" />
+    </>
+  ),
+  fork: (
+    <>
+      <path d="M6 3v4a3 3 0 0 0 6 0V3M9 3v18" />
+    </>
+  ),
   bell: (
     <>
       <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
@@ -167,13 +195,20 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 }
 
 // Look of each category (the data itself now comes from the backend).
-const categoryStyles: Record<string, { color: string; icon: string; badge: string }> = {
-  Dining: { color: "#9a6bff", icon: "✦", badge: "bg-[#f2e9ff] text-[#7749c4]" },
-  Groceries: { color: "#2ec7a6", icon: "⌂", badge: "bg-[#e3f7f0] text-[#16866e]" },
-  Shopping: { color: "#ff9b6a", icon: "◇", badge: "bg-[#fff2df] text-[#ae7020]" },
-  Transport: { color: "#ffcc57", icon: "↗", badge: "bg-[#fff0e9] text-[#d85f36]" },
-  Other: { color: "#a9b6c8", icon: "••", badge: "bg-[#eef1f4] text-[#5b6b80]" },
+const categoryStyles: Record<string, { color: string; iconColor: string; icon: IconName | null; badge: string }> = {
+  Dining: { color: "#9a6bff", iconColor: "#8054DB", icon: "fork", badge: "bg-[#f2e9ff] text-[#7749c4]" },
+  Groceries: { color: "#2ec7a6", iconColor: "#209E86", icon: "bag", badge: "bg-[#e3f7f0] text-[#16866e]" },
+  Shopping: { color: "#ff9b6a", iconColor: "#D9774A", icon: "cart", badge: "bg-[#fff2df] text-[#ae7020]" },
+  Transport: { color: "#ffcc57", iconColor: "#C09022", icon: "car", badge: "bg-[#fff0e9] text-[#d85f36]" },
+  Other: { color: "#a9b6c8", iconColor: "#7D8AA0", icon: null, badge: "bg-[#E2E5F4] text-[#6F789A]" },
 };
+
+function CategoryIcon({ name, size }: { name: string; size: number }) {
+  const style = styleFor(name);
+  if (!style.icon) return <>••</>;
+  // the fork glyph sits left of centre, so nudge it like the design does
+  return style.icon === "fork" ? <span className="translate-x-[2px]"><Icon name="fork" size={size} /></span> : <Icon name={style.icon} size={size} />;
+}
 const styleFor = (category: string) => categoryStyles[category] ?? categoryStyles.Other;
 
 const money = (n: number, cents = true) =>
@@ -182,7 +217,7 @@ const shortDate = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateStrin
 const longDate = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
 function donutGradient(categories: CategoryTotal[], total: number) {
-  if (!total) return "conic-gradient(#e6ecea 0deg 360deg)";
+  if (!total) return "conic-gradient(#DADDF1 0deg 360deg)";
   let angle = 0;
   const stops = categories.map((c) => {
     const start = angle;
@@ -254,7 +289,7 @@ function App() {
     setMe(null);
   }
 
-  if (checking) return <div className="min-h-screen bg-[#f5f7f8]" />;
+  if (checking) return <div className="min-h-screen bg-[#FFFAED]" />;
   if (!me && !booting)
     return (
       <>
@@ -357,7 +392,7 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
     <label className="relative">
       <span className="sr-only">Select reporting period</span>
       <select
-        className="appearance-none rounded-xl border border-[#d8e0dd] bg-white py-2.5 pl-4 pr-10 text-xs font-bold text-[#31433e] shadow-sm outline-none focus:border-[#357866]"
+        className="appearance-none rounded-xl border border-[#DADDF1] bg-white py-2.5 pl-4 pr-10 text-xs font-bold text-[#275992] shadow-sm outline-none focus:border-[#95A1D8]"
         onChange={(event) => setPeriod(event.target.value)}
         value={period}
       >
@@ -367,44 +402,44 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
           </option>
         ))}
       </select>
-      <span className="pointer-events-none absolute right-3 top-2.5 rotate-90 text-[#657771]">
+      <span className="pointer-events-none absolute right-3 top-2.5 rotate-90 text-[#6F789A]">
         <Icon name="chevron" size={16} />
       </span>
     </label>
   );
 
   return (
-    <div className="min-h-screen bg-[#f5f7f8] text-[#14211d]">
-      <header className="sticky top-0 z-30 flex h-[72px] items-center justify-between border-b border-[#dde4e1] bg-white px-5 lg:px-8">
+    <div className="min-h-screen bg-[#FFFAED] text-[#275992]">
+      <header className="sticky top-0 z-30 flex h-[72px] items-center justify-between border-b border-[#DADDF1] bg-[#FFFDF7] px-5 lg:px-8">
         <div className="flex items-center gap-3">
-          <div className="grid size-9 place-items-center rounded-[12px] bg-[#173f35] text-white">
+          <div className="grid size-9 place-items-center rounded-[12px] bg-[#95A1D8] text-white">
             <svg aria-hidden="true" height="21" viewBox="0 0 24 24" width="21">
               <path d="M4 18V9l8-5 8 5v9l-8-4.6L4 18Z" fill="currentColor" />
             </svg>
           </div>
-          <span className="text-[19px] font-bold tracking-[-0.04em]">Northstar</span>
-          <span className="hidden rounded-full bg-[#eef3f1] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#587068] sm:block">
+          <span className="text-[19px] font-bold tracking-[-0.04em]">Gatorstar</span>
+          <span className="hidden rounded-full bg-[#E2E5F4] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#6F789A] sm:block">
             Banking
           </span>
         </div>
         <div className="flex items-center gap-2 sm:gap-4">
           <NotificationBell onOpenTarget={setActiveNav} />
-          <div className="mx-1 hidden h-7 w-px bg-[#e3e8e6] sm:block" />
+          <div className="mx-1 hidden h-7 w-px bg-[#DADDF1] sm:block" />
           <div className="flex items-center gap-2 rounded-full p-1 pr-2">
-            <span className="grid size-9 place-items-center rounded-full bg-[#d9eadf] text-sm font-bold text-[#235749]">{initials}</span>
+            <span className="grid size-9 place-items-center rounded-full bg-[#FFF0E2] text-sm font-bold text-[#FF8A5B]">{initials}</span>
             <span className="hidden leading-tight sm:block">
-              <span className="block text-sm font-semibold">{me.display_name}</span>
-              <span className="block text-[11px] text-[#8a9893]">@{me.username}</span>
+              <span className="block text-sm font-semibold text-[#FF8A5B]">{me.display_name}</span>
+              <span className="block text-[11px] text-[#8790AE]">@{me.username}</span>
             </span>
           </div>
-          <button className="rounded-lg border border-[#d8e0dd] px-3 py-2 text-[11px] font-bold text-[#31433e] transition hover:bg-[#f3f6f5]" onClick={onLogout}>
+          <button className="rounded-lg border border-[#DADDF1] px-3 py-2 text-[11px] font-bold text-[#275992] transition hover:bg-[#E2E5F4]" onClick={onLogout}>
             Log out
           </button>
         </div>
       </header>
 
       <div className="mx-auto flex max-w-[1600px]">
-        <aside className="fixed bottom-0 left-0 right-0 z-20 flex h-16 items-center justify-around border-t border-[#dde4e1] bg-white px-2 lg:sticky lg:top-[72px] lg:h-[calc(100vh-72px)] lg:w-[232px] lg:flex-col lg:items-stretch lg:justify-between lg:border-r lg:border-t-0 lg:p-4">
+        <aside className="fixed bottom-0 left-0 right-0 z-20 flex h-16 items-center justify-around border-t border-[#DADDF1] bg-[#FFFDF7] px-2 lg:sticky lg:top-[72px] lg:h-[calc(100vh-72px)] lg:w-[232px] lg:flex-col lg:items-stretch lg:justify-between lg:border-r lg:border-t-0 lg:p-4">
           <nav className="flex w-full justify-around lg:flex-col lg:gap-1" aria-label="Main navigation">
             {[
               ["Overview", "grid"],
@@ -424,13 +459,13 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
             ))}
           </nav>
           <div className="hidden lg:block">
-            <div className="mb-4 rounded-2xl bg-[#edf3f1] p-4">
-              <div className="mb-3 grid size-8 place-items-center rounded-lg bg-white text-[#235749] shadow-sm">
+            <div className="mb-4 rounded-2xl bg-[#E2E5F4] p-4">
+              <div className="mb-3 grid size-8 place-items-center rounded-lg bg-white text-[#FF8A5B] shadow-sm">
                 <Icon name="help" size={17} />
               </div>
               <p className="text-xs font-bold">Need a hand?</p>
-              <p className="mt-1 text-[11px] leading-4 text-[#6a7c76]">Our support team is here around the clock.</p>
-              <button className="mt-3 text-[11px] font-bold text-[#235749]">Get support →</button>
+              <p className="mt-1 text-[11px] leading-4 text-[#6F789A]">Our support team is here around the clock.</p>
+              <button className="mt-3 text-[11px] font-bold text-[#FF8A5B]">Get support →</button>
             </div>
             <button className="nav-item w-full">
               <Icon name="settings" size={19} />
@@ -450,7 +485,7 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
             <>
               <div className="mb-7">
                 <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">Welcome, {firstName}</h1>
-                <p className="mt-1 text-sm text-[#697975]">One more step: link your bank to see your spending. You can add friends right away.</p>
+                <p className="mt-1 text-sm text-[#6F789A]">One more step: link your bank to see your spending. You can add friends right away.</p>
               </div>
               <LinkBankForm onLinked={onMeChanged} />
             </>
@@ -458,19 +493,19 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
             <>
               <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
                 <div>
-                  <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#71817c]">Insights</p>
+                  <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#6F789A]">Insights</p>
                   <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">Your money, explained</h1>
-                  <p className="mt-1 text-sm text-[#697975]">What Gemini sees in your spending, plus every transaction behind it.</p>
+                  <p className="mt-1 text-sm text-[#6F789A]">What Gemini sees in your spending, plus every transaction behind it.</p>
                 </div>
                 {periodPicker}
               </div>
 
               <AiInsightsPanel ai={ai} loading={aiLoading} onRefresh={loadInsights} />
-              <p className="mt-3 text-center text-[10px] leading-4 text-[#8c9995]">
+              <p className="mt-3 text-center text-[10px] leading-4 text-[#8790AE]">
                 AI insights are generated by Gemini from your spending totals and are for education, not financial advice.
               </p>
 
-              <div className="mt-10 border-t border-[#dde4e1] pt-8">
+              <div className="mt-10 border-t border-[#DADDF1] pt-8">
                 <Transactions embedded />
               </div>
             </>
@@ -478,11 +513,11 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
           <>
           <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
             <div>
-              <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#71817c]">
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#6F789A]">
                 {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
               </p>
               <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">{greeting}, {firstName}</h1>
-              <p className="mt-1 text-sm text-[#697975]">Here’s where your money went—and where it can take you.</p>
+              <p className="mt-1 text-sm text-[#6F789A]">Here’s where your money went—and where it can take you.</p>
             </div>
             {periodPicker}
           </div>
@@ -500,17 +535,17 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
                   <p className="eyebrow">Total spending</p>
                   <p className="metric-number">{money(total)}</p>
                 </div>
-                <span className="metric-icon bg-[#e7f1ed] text-[#276858]"><Icon name="wallet" size={18} /></span>
+                <span className="metric-icon" style={{ backgroundColor: "#27685833", color: "#276858" }}><Icon name="wallet" size={18} /></span>
               </div>
               <div className="mt-5 flex items-center gap-2 text-xs">
                 {change === null ? (
-                  <span className="text-[#798883]">No spending in the previous period to compare</span>
+                  <span className="text-[#8790AE]">No spending in the previous period to compare</span>
                 ) : (
                   <>
-                    <span className={`rounded-full px-2 py-1 font-bold ${change <= 0 ? "bg-[#e5f5ed] text-[#167454]" : "bg-[#fff0e9] text-[#b4502f]"}`}>
+                    <span className={`rounded-full px-2 py-1 font-bold ${change <= 0 ? "bg-[#FFF0E2] text-[#F6C28E]" : "bg-[#fff0e9] text-[#b4502f]"}`}>
                       {change <= 0 ? "↓" : "↑"} {Math.abs(change)}%
                     </span>
-                    <span className="text-[#798883]">vs. previous period</span>
+                    <span className="text-[#8790AE]">vs. previous period</span>
                   </>
                 )}
               </div>
@@ -521,30 +556,34 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
                   <p className="eyebrow">Top category</p>
                   <p className="metric-number">{top?.name ?? "—"}</p>
                 </div>
-                <span className="metric-icon bg-[#f0eaff] text-[#784ccb]"><Icon name="sparkles" size={18} /></span>
+                {top ? (
+                  <span className="metric-icon" style={{ backgroundColor: `${styleFor(top.name).iconColor}33`, color: styleFor(top.name).iconColor }}><CategoryIcon name={top.name} size={18} /></span>
+                ) : (
+                  <span className="metric-icon" style={{ backgroundColor: "#784CCB33", color: "#784CCB" }}><Icon name="sparkles" size={18} /></span>
+                )}
               </div>
               <div className="mt-5 flex items-center gap-2 text-xs">
                 {top ? (
                   <>
-                    <span className="font-bold text-[#523582]">{money(top.amount)}</span>
-                    <span className="text-[#798883]">across {top.count} {top.count === 1 ? "purchase" : "purchases"}</span>
+                    <span className="font-bold text-[#F6C28E]">{money(top.amount)}</span>
+                    <span className="text-[#8790AE]">across {top.count} {top.count === 1 ? "purchase" : "purchases"}</span>
                   </>
                 ) : (
-                  <span className="text-[#798883]">No purchases in this period</span>
+                  <span className="text-[#8790AE]">No purchases in this period</span>
                 )}
               </div>
             </article>
-            <article className="metric-card overflow-hidden !bg-[#173f35] text-white">
+            <article className="metric-card overflow-hidden text-white">
               <div className="absolute -right-8 -top-10 size-32 rounded-full border-[18px] border-white/5" />
               <div className="relative flex items-start justify-between">
                 <div>
-                  <p className="eyebrow !text-[#a9c5bc]">Available balance</p>
-                  <p className="metric-number">{money(data?.available_balance ?? 0)}</p>
+                  <p className="eyebrow">Available balance</p>
+                  <p className="metric-number text-[#275992]">{money(data?.available_balance ?? 0)}</p>
                 </div>
-                <span className="metric-icon bg-white/10 text-[#dbf4e9]"><Icon name="wallet" size={18} /></span>
+                <span className="metric-icon" style={{ backgroundColor: "#94C8B633", color: "#94C8B6" }}><Icon name="gift" size={18} /></span>
               </div>
-              <div className="relative mt-5 flex items-center gap-2 text-xs text-[#bad0c8]">
-                <span className="font-bold text-[#d7f68e]">{money(data?.goal_savings ?? 0)}</span>
+              <div className="relative mt-5 flex items-center gap-2 text-xs text-[#8790AE]">
+                <span className="font-bold text-[#F6C28E]">{money(data?.goal_savings ?? 0)}</span>
                 <span>moved into group goals</span>
               </div>
             </article>
@@ -557,10 +596,10 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
                   <p className="panel-title">Spending overview</p>
                   <p className="panel-subtitle">Your {data?.daily.unit === "week" ? "weekly" : "daily"} purchase activity, {periodLabel}</p>
                 </div>
-                <button className="text-xs font-bold text-[#41675c]">View report</button>
+                <button className="text-xs font-bold text-[#FF8A5B]">View report</button>
               </div>
               <div className="mt-7 flex gap-4">
-                <div className="flex h-[200px] flex-col justify-between pb-6 text-[10px] text-[#94a09c]">
+                <div className="flex h-[200px] flex-col justify-between pb-6 text-[10px] text-[#8D95B1]">
                   {[4, 3, 2, 1, 0].map((k) => (
                     <span key={k}>{money((chartMax * k) / 4, false)}</span>
                   ))}
@@ -569,25 +608,25 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
                   {points.map((point, index) => (
                     <div className="group relative flex h-full flex-1 items-end" key={point.date} title={`${shortDate(point.date)}: ${money(point.amount)}`}>
                       <div
-                        className={`w-full min-w-[3px] rounded-t-[4px] transition-all group-hover:opacity-75 ${index === peak && point.amount > 0 ? "bg-[#9a6bff]" : "bg-[#cfe2dc]"}`}
+                        className={`w-full min-w-[3px] rounded-t-[4px] transition-all group-hover:opacity-75 ${index === peak && point.amount > 0 ? "bg-[#FF8A5B]" : "bg-[#C8CEEB]"}`}
                         style={{ height: `${(point.amount / chartMax) * 100}%` }}
                       />
                       {index === peak && point.amount > 0 && (
-                        <span className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-[#293a35] px-1.5 py-1 text-[9px] font-bold text-white">{money(point.amount, false)}</span>
+                        <span className="absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-[#275992] px-1.5 py-1 text-[9px] font-bold text-white">{money(point.amount, false)}</span>
                       )}
                     </div>
                   ))}
-                  <div className="absolute bottom-0 left-0 right-0 flex justify-between text-[10px] text-[#94a09c]">
+                  <div className="absolute bottom-0 left-0 right-0 flex justify-between text-[10px] text-[#8D95B1]">
                     {labelIndexes.map((i) => (
                       <span key={i}>{shortDate(points[i].date)}</span>
                     ))}
                   </div>
                 </div>
               </div>
-              <div className="mt-5 flex items-start gap-3 rounded-xl bg-[#f4f0ff] p-3.5">
-                <span className="mt-0.5 text-[#7650bd]"><Icon name="sparkles" size={17} /></span>
-                <p className="text-xs leading-5 text-[#5e5472]">
-                  <strong className="text-[#30283f]">Smart insight:</strong>{" "}
+              <div className="mt-5 flex items-start gap-3 rounded-xl bg-[#E2E5F4] p-3.5">
+                <span className="mt-0.5 text-[#275992]"><Icon name="sparkles" size={17} /></span>
+                <p className="text-xs leading-5 text-[#6F789A]">
+                  <strong className="text-[#275992]">Smart insight:</strong>{" "}
                   {ai?.available && ai.insights
                     ? ai.insights.headline
                     : points[peak]?.amount
@@ -603,29 +642,29 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
                   <p className="panel-title">Where your money goes</p>
                   <p className="panel-subtitle">Spending by category</p>
                 </div>
-                <button aria-label="More category options" className="text-lg font-bold text-[#80908a]">•••</button>
+                <button aria-label="More category options" className="text-lg font-bold text-[#FF8A5B]">•••</button>
               </div>
               <div className="mt-6 flex flex-col items-center gap-7 sm:flex-row xl:flex-col 2xl:flex-row">
                 <div className="donut-chart grid size-40 shrink-0 place-items-center rounded-full" style={{ background: donutGradient(categories, total) }}>
-                  <div className="grid size-[104px] place-items-center rounded-full bg-white text-center shadow-[0_0_0_1px_#eef1f0]">
+                  <div className="grid size-[104px] place-items-center rounded-full bg-[#FFFDF7] text-center shadow-[0_0_0_1px_#DADDF1]">
                     <div>
-                      <p className="text-[10px] font-semibold text-[#8a9893]">Total</p>
-                      <p className="text-lg font-bold tracking-[-0.04em]">{money(total, false)}</p>
+                      <p className="text-[10px] font-semibold text-[#8790AE]">Total</p>
+                      <p className="text-lg font-bold tracking-[-0.04em] text-[#F6C28E]">{money(total, false)}</p>
                     </div>
                   </div>
                 </div>
                 <div className="w-full space-y-3.5">
-                  {categories.length === 0 && <p className="text-xs text-[#8a9893]">No purchases in this period.</p>}
+                  {categories.length === 0 && <p className="text-xs text-[#8790AE]">No purchases in this period.</p>}
                   {categories.map((category) => {
                     const style = styleFor(category.name);
                     return (
                       <div className="flex items-center gap-3" key={category.name}>
-                        <span className="grid size-7 place-items-center rounded-lg text-xs font-bold" style={{ backgroundColor: `${style.color}1f`, color: style.color }}>
-                          {style.icon}
+                        <span className="grid size-7 place-items-center rounded-lg text-xs font-bold" style={{ backgroundColor: `${style.iconColor}33`, color: style.iconColor }}>
+                          <CategoryIcon name={category.name} size={14} />
                         </span>
                         <span className="flex-1 text-xs font-semibold">{category.name}</span>
-                        <span className="text-xs font-bold">{money(category.amount, false)}</span>
-                        <span className="w-8 text-right text-[10px] text-[#8a9893]">{category.percent}%</span>
+                        <span className="text-xs font-bold text-[#F6C28E]">{money(category.amount, false)}</span>
+                        <span className="w-8 text-right text-[10px] text-[#8790AE]">{category.percent}%</span>
                       </div>
                     );
                   })}
@@ -712,28 +751,28 @@ function NotificationBell({ onOpenTarget }: { onOpenTarget: (target: string) => 
         )}
       </button>
       {open && (
-        <div className="absolute right-0 top-12 z-40 w-[340px] max-w-[calc(100vw-32px)] overflow-hidden rounded-2xl border border-[#e3e8e6] bg-white shadow-xl">
-          <div className="flex items-center justify-between border-b border-[#edf0ef] px-4 py-3">
+        <div className="absolute right-0 top-12 z-40 w-[340px] max-w-[calc(100vw-32px)] overflow-hidden rounded-2xl border border-[#DADDF1] bg-[#FFFDF7] shadow-xl">
+          <div className="flex items-center justify-between border-b border-[#DADDF1] px-4 py-3">
             <p className="text-sm font-bold">Notifications</p>
-            <button className="text-[11px] font-bold text-[#41675c]" onClick={load}>Refresh</button>
+            <button className="text-[11px] font-bold text-[#FF8A5B]" onClick={load}>Refresh</button>
           </div>
           <div className="max-h-[420px] overflow-y-auto">
-            {items.length === 0 && <p className="px-4 py-8 text-center text-xs text-[#8a9893]">You're all caught up.</p>}
+            {items.length === 0 && <p className="px-4 py-8 text-center text-xs text-[#8790AE]">You're all caught up.</p>}
             {items.map((n) => (
               <button
-                className={`flex w-full gap-3 border-b border-[#f1f4f3] px-4 py-3 text-left transition hover:bg-[#f7faf9] ${n.unread ? "bg-[#f3f8f6]" : ""}`}
+                className={`flex w-full gap-3 border-b border-[#F4F5FB] px-4 py-3 text-left transition hover:bg-[#F4F5FB] ${n.unread ? "bg-[#F4F5FB]" : ""}`}
                 key={n.id}
                 onClick={() => {
                   onOpenTarget(n.target);
                   setOpen(false);
                 }}
               >
-                <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-[#edf3f1] text-[#235749]">
+                <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-[#E2E5F4] text-[#FF8A5B]">
                   <Icon name={notificationIcon[n.kind] ?? "bell"} size={16} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-xs font-semibold leading-4 text-[#14211d]">{n.title}</span>
-                  <span className="mt-0.5 block text-[11px] text-[#7a8984]">
+                  <span className="block text-xs font-semibold leading-4 text-[#275992]">{n.title}</span>
+                  <span className="mt-0.5 block text-[11px] text-[#6F789A]">
                     {n.body} · {timeAgo(n.created_at)}
                   </span>
                 </span>
@@ -749,28 +788,28 @@ function NotificationBell({ onOpenTarget }: { onOpenTarget: (target: string) => 
 
 function AiInsightsPanel({ ai, loading, onRefresh }: { ai: InsightsResponse | null; loading: boolean; onRefresh: () => void }) {
   return (
-    <section className="relative mb-5 overflow-hidden rounded-[20px] bg-[#f0e8ff] p-5 sm:p-6">
+    <section className="relative mb-5 overflow-hidden rounded-[20px] bg-[#E2E5F4] p-5 sm:p-6">
       <div className="absolute -bottom-20 -right-8 size-56 rounded-full border-[32px] border-[#9a6bff]/10" />
       <div className="relative">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#7342bf] text-white shadow-lg shadow-[#7342bf]/20">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#275992] text-white shadow-lg shadow-[#275992]/20">
               <Icon name="sparkles" size={20} />
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#6c499e]">AI insights · Gemini</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#275992]">AI insights · Gemini</p>
               {ai?.available && ai.insights ? (
-                <h2 className="text-lg font-bold tracking-[-0.025em] text-[#32243f]">{ai.insights.headline}</h2>
+                <h2 className="text-lg font-bold tracking-[-0.025em] text-[#275992]">{ai.insights.headline}</h2>
               ) : (
-                <h2 className="text-lg font-bold tracking-[-0.025em] text-[#32243f]">{loading ? "Reading your spending…" : "Insights aren't available yet"}</h2>
+                <h2 className="text-lg font-bold tracking-[-0.025em] text-[#275992]">{loading ? "Reading your spending…" : "Insights aren't available yet"}</h2>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2">
             {ai?.available && ai.insights && (
-              <span className="hidden rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-bold text-[#6d548c] sm:block">{ai.insights.persona}</span>
+              <span className="hidden rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-bold text-[#4C6099] sm:block">{ai.insights.persona}</span>
             )}
-            <button className="rounded-lg bg-white/70 px-3 py-1.5 text-[11px] font-bold text-[#5c3a87] transition hover:bg-white disabled:opacity-50" disabled={loading} onClick={onRefresh}>
+            <button className="rounded-lg bg-white/70 px-3 py-1.5 text-[11px] font-bold text-[#275992] transition hover:bg-white disabled:opacity-50" disabled={loading} onClick={onRefresh}>
               {loading ? "Thinking…" : "Refresh"}
             </button>
           </div>
@@ -781,22 +820,22 @@ function AiInsightsPanel({ ai, loading, onRefresh }: { ai: InsightsResponse | nu
             <div className="h-3 w-2/3 animate-pulse rounded bg-white/60" />
           </div>
         )}
-        {ai && !ai.available && !loading && <p className="text-xs text-[#766681]">{ai.reason}</p>}
+        {ai && !ai.available && !loading && <p className="text-xs text-[#6F789A]">{ai.reason}</p>}
         {ai?.available && ai.insights && (
           <div className="grid gap-4 sm:grid-cols-2">
             <ul className="space-y-2">
               {ai.insights.insights.map((text, i) => (
-                <li className="flex gap-2 text-xs leading-5 text-[#4c3f5c]" key={i}>
+                <li className="flex gap-2 text-xs leading-5 text-[#6F789A]" key={i}>
                   <span className="mt-2 size-1.5 shrink-0 rounded-full bg-[#9a6bff]" />
                   {text}
                 </li>
               ))}
             </ul>
             <div className="rounded-xl bg-white/70 p-3.5">
-              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[#6c499e]">Try this</p>
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[#275992]">Try this</p>
               <ul className="space-y-1.5">
                 {ai.insights.tips.map((tip, i) => (
-                  <li className="text-xs leading-5 text-[#4c3f5c]" key={i}>{tip}</li>
+                  <li className="text-xs leading-5 text-[#6F789A]" key={i}>{tip}</li>
                 ))}
               </ul>
             </div>

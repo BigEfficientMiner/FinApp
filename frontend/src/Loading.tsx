@@ -31,22 +31,22 @@ export function LoadingScreen({
     <div
       aria-busy={!leaving}
       aria-live="polite"
-      className={`fixed inset-0 z-50 grid place-items-center bg-[#f5f7f8] px-4 transition-opacity duration-500 ${leaving ? "pointer-events-none opacity-0" : "opacity-100"}`}
+      className={`fixed inset-0 z-50 grid place-items-center bg-[#FFFAED] px-4 transition-opacity duration-500 ${leaving ? "pointer-events-none opacity-0" : "opacity-100"}`}
       role="status"
     >
-      <div className="w-full max-w-[420px] rounded-[24px] border border-[#e0e6e4] bg-white p-7 shadow-[0_20px_60px_-30px_rgba(23,63,53,0.35)] sm:p-9">
+      <div className="w-full max-w-[420px] rounded-[24px] border border-[#DADDF1] bg-[#FFFDF7] p-7 shadow-[0_20px_60px_-30px_rgba(39,89,146,0.35)] sm:p-9">
         <div className="flex items-center gap-3">
-          <div className="relative grid size-11 place-items-center rounded-[14px] bg-[#173f35] text-white">
-            <span className="absolute inset-0 animate-ping rounded-[14px] bg-[#173f35] opacity-20" />
+          <div className="relative grid size-11 place-items-center rounded-[14px] bg-[#95A1D8] text-white">
+            <span className="absolute inset-0 animate-ping rounded-[14px] bg-[#95A1D8] opacity-20" />
             <svg aria-hidden="true" className="relative" height="23" viewBox="0 0 24 24" width="23">
               <path d="M4 18V9l8-5 8 5v9l-8-4.6L4 18Z" fill="currentColor" />
             </svg>
           </div>
-          <span className="text-[19px] font-bold tracking-[-0.04em]">Northstar</span>
+          <span className="text-[19px] font-bold tracking-[-0.04em]">Gatorstar</span>
         </div>
 
         <h1 className="mt-7 text-[24px] font-bold tracking-[-0.04em]">{title}</h1>
-        <p className="mt-1 text-sm text-[#697975]">{subtitle}</p>
+        <p className="mt-1 text-sm text-[#6F789A]">{subtitle}</p>
 
         <ol className="mt-6 space-y-3.5">
           {steps.map((step, i) => {
@@ -56,7 +56,7 @@ export function LoadingScreen({
               <li className="flex items-start gap-3" key={step}>
                 <span
                   className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border transition-colors duration-300 ${
-                    done ? "border-[#2f8a6f] bg-[#2f8a6f] text-white" : current ? "border-[#357866]" : "border-[#d8e0dd]"
+                    done ? "border-[#FF8A5B] bg-[#FF8A5B] text-white" : current ? "border-[#95A1D8]" : "border-[#DADDF1]"
                   }`}
                 >
                   {done ? (
@@ -64,22 +64,22 @@ export function LoadingScreen({
                       <path d="m5 12 5 5 9-10" />
                     </svg>
                   ) : current ? (
-                    <span className="size-2.5 animate-spin rounded-full border-2 border-[#357866] border-t-transparent" />
+                    <span className="size-2.5 animate-spin rounded-full border-2 border-[#95A1D8] border-t-transparent" />
                   ) : null}
                 </span>
                 <span>
-                  <span className={`block text-sm transition-colors duration-300 ${done ? "text-[#31433e]" : current ? "font-bold text-[#14211d]" : "text-[#9aa7a3]"}`}>
+                  <span className={`block text-sm transition-colors duration-300 ${done ? "text-[#275992]" : current ? "font-bold text-[#275992]" : "text-[#8D95B1]"}`}>
                     {step}
                   </span>
-                  {current && detail && <span className="mt-0.5 block text-[11px] text-[#697975]">{detail}</span>}
+                  {current && detail && <span className="mt-0.5 block text-[11px] text-[#6F789A]">{detail}</span>}
                 </span>
               </li>
             );
           })}
         </ol>
 
-        <div className="mt-7 h-1.5 overflow-hidden rounded-full bg-[#edf1ef]">
-          <div className="h-full rounded-full bg-[#2f8a6f] transition-[width] duration-500 ease-out" style={{ width: `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%` }} />
+        <div className="mt-7 h-1.5 overflow-hidden rounded-full bg-[#C4CAE3]">
+          <div className="h-full rounded-full bg-[#FF8A5B] transition-[width] duration-500 ease-out" style={{ width: `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%` }} />
         </div>
       </div>
     </div>
@@ -110,7 +110,7 @@ export function SignInLoading({ me, onDone }: { me: Me | null; onDone: () => voi
   const linked = me ? me.bank_link !== null : null;
   const steps =
     linked === false
-      ? ["Signing you in", "Setting up your profile", "Getting Northstar ready"]
+      ? ["Signing you in", "Setting up your profile", "Getting Gatorstar ready"]
       : ["Signing you in", "Connecting to your bank", "Syncing transactions and balances", "Preparing your insights"];
   const { active, setActive, setGate } = useSteps(steps.length, 650);
   const [leaving, setLeaving] = useState(false);
@@ -176,7 +176,7 @@ export function ConnectBankLoading({
   onError: (message: string) => void;
 }) {
   const steps = newAccount
-    ? ["Opening your Northstar bank account", "Linking it to your profile", "Importing your transaction history", "Calculating balances"]
+    ? ["Opening your Gatorstar bank account", "Linking it to your profile", "Importing your transaction history", "Calculating balances"]
     : ["Verifying your customer ID", "Linking it to your profile", "Syncing transactions and balances"];
   const { active, setActive, setGate } = useSteps(steps.length, 700);
   const [detail, setDetail] = useState("");
@@ -237,7 +237,7 @@ export function ConnectBankLoading({
       leaving={leaving}
       progress={progress}
       steps={steps}
-      subtitle={newAccount ? "Setting up your account with about two months of activity." : "Connecting your bank to Northstar."}
+      subtitle={newAccount ? "Setting up your account with about two months of activity." : "Connecting your bank to Gatorstar."}
       title="Connecting your bank"
     />
   );

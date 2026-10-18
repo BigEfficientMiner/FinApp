@@ -50,17 +50,17 @@ const moneyShort = (n: number) => n.toLocaleString("en-US", { style: "currency",
 const when = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const longDate = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-const primaryBtn = "rounded-lg bg-[#173f35] px-3.5 py-2 text-[11px] font-bold text-white transition hover:bg-[#0f2c25] disabled:opacity-50";
-const secondaryBtn = "rounded-lg border border-[#d8e0dd] bg-white px-3.5 py-2 text-[11px] font-bold text-[#31433e] transition hover:bg-[#f3f6f5] disabled:opacity-50";
-const quietBtn = "rounded-lg px-2 py-2 text-[11px] font-bold text-[#8a9893] transition hover:text-[#b4502f] disabled:opacity-50";
-const input = "w-full rounded-xl border border-[#d8e0dd] bg-white px-3.5 py-2.5 text-xs outline-none transition focus:border-[#357866]";
-const fieldLabel = "mb-1 block text-[10px] font-bold uppercase tracking-[0.1em] text-[#587068]";
+const primaryBtn = "rounded-lg bg-[#275992] px-3.5 py-2 text-[11px] font-bold text-white transition hover:bg-[#1F4777] disabled:opacity-50";
+const secondaryBtn = "rounded-lg border border-[#DADDF1] bg-white px-3.5 py-2 text-[11px] font-bold text-[#275992] transition hover:bg-[#E2E5F4] disabled:opacity-50";
+const quietBtn = "rounded-lg px-2 py-2 text-[11px] font-bold text-[#8790AE] transition hover:text-[#b4502f] disabled:opacity-50";
+const input = "w-full rounded-xl border border-[#DADDF1] bg-white px-3.5 py-2.5 text-xs outline-none transition focus:border-[#95A1D8]";
+const fieldLabel = "mb-1 block text-[10px] font-bold uppercase tracking-[0.1em] text-[#6F789A]";
 
 const STATUS: Record<Status, { label: string; cls: string }> = {
-  on_track: { label: "On track", cls: "bg-[#e5f5ed] text-[#167454]" },
+  on_track: { label: "On track", cls: "bg-[#E3F7F0] text-[#209E86]" },
   behind: { label: "Behind", cls: "bg-[#fff0e9] text-[#b4502f]" },
-  complete: { label: "Complete", cls: "bg-[#f0eaff] text-[#6c499e]" },
-  not_committed: { label: "Not committed", cls: "bg-[#eef1f4] text-[#5b6b80]" },
+  complete: { label: "Complete", cls: "bg-[#784CCB33] text-[#275992]" },
+  not_committed: { label: "Not committed", cls: "bg-[#E2E5F4] text-[#6F789A]" },
   missed: { label: "Deadline passed", cls: "bg-[#fde8e4] text-[#9a3b22]" },
 };
 
@@ -71,7 +71,7 @@ function Pill({ status }: { status: Status }) {
 
 function Avatar({ person, size = "size-9" }: { person: Person; size?: string }) {
   return (
-    <span className={`grid ${size} shrink-0 place-items-center rounded-full border-2 border-white bg-[#d9eadf] text-[11px] font-bold text-[#235749]`} title={person.display_name}>
+    <span className={`grid ${size} shrink-0 place-items-center rounded-full border-2 border-white bg-[#FFF0E2] text-[11px] font-bold text-[#FF8A5B]`} title={person.display_name}>
       {initials(person.display_name)}
     </span>
   );
@@ -83,19 +83,19 @@ function AvatarStack({ people }: { people: Person[] }) {
       {people.slice(0, 5).map((p) => (
         <Avatar key={p.id} person={p} size="size-8" />
       ))}
-      {people.length > 5 && <span className="grid size-8 place-items-center rounded-full border-2 border-white bg-[#eef1f4] text-[10px] font-bold">+{people.length - 5}</span>}
+      {people.length > 5 && <span className="grid size-8 place-items-center rounded-full border-2 border-white bg-[#E2E5F4] text-[10px] font-bold">+{people.length - 5}</span>}
     </div>
   );
 }
 
 /** Progress bar with a tick showing where you should be by now. */
 function Bar({ percent, expectedPercent, tone = "green" }: { percent: number; expectedPercent?: number; tone?: "green" | "orange" | "purple" }) {
-  const fill = tone === "orange" ? "bg-[#ef8a5f]" : tone === "purple" ? "bg-[#9a6bff]" : "bg-[#2f8a6f]";
+  const fill = tone === "orange" ? "bg-[#ef8a5f]" : tone === "purple" ? "bg-[#9a6bff]" : "bg-[#FF8A5B]";
   return (
-    <div className="relative h-2.5 w-full overflow-visible rounded-full bg-[#e8eeeb]">
+    <div className="relative h-2.5 w-full overflow-visible rounded-full bg-[#E2E5F4]">
       <div className={`h-full rounded-full ${fill} transition-all`} style={{ width: `${Math.min(100, percent)}%` }} />
       {expectedPercent !== undefined && expectedPercent > 0 && expectedPercent < 100 && (
-        <div className="absolute -top-1 h-[18px] w-0.5 rounded bg-[#31433e]" style={{ left: `${expectedPercent}%` }} title="Where you should be by now" />
+        <div className="absolute -top-1 h-[18px] w-0.5 rounded bg-[#275992]" style={{ left: `${expectedPercent}%` }} title="Where you should be by now" />
       )}
     </div>
   );
@@ -105,7 +105,7 @@ function Notice({ message }: { message: { kind: "ok" | "error"; text: string } |
   if (!message) return null;
   return (
     <div
-      className={`mb-5 rounded-xl border px-4 py-3 text-xs font-semibold ${message.kind === "ok" ? "border-[#bfe3d3] bg-[#eefaf4] text-[#146d57]" : "border-[#f3c9bd] bg-[#fff4f0] text-[#9a3b22]"}`}
+      className={`mb-5 rounded-xl border px-4 py-3 text-xs font-semibold ${message.kind === "ok" ? "border-[#B8E6D6] bg-[#E3F7F0] text-[#209E86]" : "border-[#f3c9bd] bg-[#fff4f0] text-[#9a3b22]"}`}
       role={message.kind === "error" ? "alert" : "status"}
     >
       {message.text}
@@ -180,12 +180,12 @@ function GroupList({ onOpen }: { onOpen: (id: number) => void }) {
     <div>
       <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#71817c]">Groups</p>
+          <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#6F789A]">Groups</p>
           <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">Save together</h1>
-          <p className="mt-1 text-sm text-[#697975]">Start a group with friends, set a shared goal, and keep each other on track.</p>
+          <p className="mt-1 text-sm text-[#6F789A]">Start a group with friends, set a shared goal, and keep each other on track.</p>
         </div>
         {!creating && (
-          <button className={`${primaryBtn} !px-5 !py-3 !text-xs`} onClick={() => setCreating(true)}>
+          <button className={`${primaryBtn} !px-5 !py-3`} onClick={() => setCreating(true)}>
             + New group
           </button>
         )}
@@ -201,11 +201,11 @@ function GroupList({ onOpen }: { onOpen: (id: number) => void }) {
           </div>
           <div className="mt-3">
             {data.invites.map((inv) => (
-              <div className="flex flex-wrap items-center gap-3 border-t border-[#edf0ef] px-5 py-3.5 sm:px-6" key={inv.id}>
+              <div className="flex flex-wrap items-center gap-3 border-t border-[#DADDF1] px-5 py-3.5 sm:px-6" key={inv.id}>
                 <Avatar person={inv.invited_by} />
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-bold">{inv.group.name}</p>
-                  <p className="text-[10px] text-[#8a9893]">
+                  <p className="text-[10px] text-[#8790AE]">
                     {inv.invited_by.display_name} (@{inv.invited_by.username}) invited you · {inv.group.member_count} {inv.group.member_count === 1 ? "member" : "members"}
                   </p>
                 </div>
@@ -238,7 +238,7 @@ function GroupList({ onOpen }: { onOpen: (id: number) => void }) {
             </label>
             <p className={`${fieldLabel} mt-4`}>Invite friends</p>
             {friends.length === 0 ? (
-              <p className="text-xs text-[#8a9893]">You don't have any friends added yet. Add them by username on the Friends page, or invite them later.</p>
+              <p className="text-xs text-[#8790AE]">You don't have any friends added yet. Add them by username on the Friends page, or invite them later.</p>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {friends.map((f) => {
@@ -246,7 +246,7 @@ function GroupList({ onOpen }: { onOpen: (id: number) => void }) {
                   return (
                     <button
                       aria-pressed={on}
-                      className={`flex items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-xs font-semibold transition ${on ? "border-[#2f8a6f] bg-[#eefaf4] text-[#146d57]" : "border-[#d8e0dd] bg-white text-[#31433e] hover:bg-[#f3f6f5]"}`}
+                      className={`flex items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-xs font-semibold transition ${on ? "border-[#FF8A5B] bg-[#E3F7F0] text-[#209E86]" : "border-[#DADDF1] bg-white text-[#275992] hover:bg-[#E2E5F4]"}`}
                       key={f.id}
                       onClick={() => setPicked(on ? picked.filter((x) => x !== f.id) : [...picked, f.id])}
                       type="button"
@@ -274,24 +274,24 @@ function GroupList({ onOpen }: { onOpen: (id: number) => void }) {
       {data && data.groups.length === 0 && !creating && (
         <section className="panel text-center">
           <p className="text-sm font-bold">No groups yet</p>
-          <p className="mx-auto mt-1 max-w-sm text-xs text-[#8a9893]">Create one for a trip, a concert, or anything you're saving for with friends.</p>
+          <p className="mx-auto mt-1 max-w-sm text-xs text-[#8790AE]">Create one for a trip, a concert, or anything you're saving for with friends.</p>
         </section>
       )}
 
       <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
         {data?.groups.map((g) => (
-          <button className="panel text-left transition hover:border-[#bcd3ca] hover:shadow-md" key={g.id} onClick={() => onOpen(g.id)}>
+          <button className="panel text-left transition hover:border-[#C8CEEB] hover:shadow-md" key={g.id} onClick={() => onOpen(g.id)}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-base font-bold tracking-[-0.02em]">{g.name}</p>
-                <p className="mt-0.5 text-[11px] text-[#8a9893]">
+                <p className="mt-0.5 text-[11px] text-[#8790AE]">
                   {g.members.length} {g.members.length === 1 ? "member" : "members"} · {g.goals.length} {g.goals.length === 1 ? "goal" : "goals"}
                 </p>
               </div>
               <AvatarStack people={g.members} />
             </div>
             <div className="mt-5 space-y-4">
-              {g.goals.length === 0 && <p className="text-xs text-[#8a9893]">No goals yet. Open the group to add one.</p>}
+              {g.goals.length === 0 && <p className="text-xs text-[#8790AE]">No goals yet. Open the group to add one.</p>}
               {g.goals.slice(0, 2).map((goal) => (
                 <div key={goal.id}>
                   <div className="mb-1.5 flex items-center justify-between gap-2">
@@ -299,7 +299,7 @@ function GroupList({ onOpen }: { onOpen: (id: number) => void }) {
                     <Pill status={goal.status} />
                   </div>
                   <Bar percent={goal.percent} tone={goal.status === "behind" ? "orange" : goal.status === "complete" ? "purple" : "green"} />
-                  <p className="mt-1.5 text-[10px] text-[#8a9893]">
+                  <p className="mt-1.5 text-[10px] text-[#8790AE]">
                     {moneyShort(goal.total_saved)} of {moneyShort(goal.target)} · {goal.days_left >= 0 ? `${goal.days_left} days left` : "deadline passed"}
                   </p>
                 </div>
@@ -352,14 +352,14 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
       <BackLink onBack={onBack} />
       <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#71817c]">Group</p>
+          <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#6F789A]">Group</p>
           <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">{g.name}</h1>
           <div className="mt-2 flex items-center gap-3">
             <AvatarStack people={g.members} />
-            <span className="text-xs text-[#697975]">{g.members.map((m) => m.display_name.split(" ")[0]).join(", ")}</span>
+            <span className="text-xs text-[#6F789A]">{g.members.map((m) => m.display_name.split(" ")[0]).join(", ")}</span>
           </div>
         </div>
-        <button className={`${primaryBtn} !px-5 !py-3 !text-xs`} onClick={() => setShowNewGoal(true)}>
+        <button className={`${primaryBtn} !px-5 !py-3`} onClick={() => setShowNewGoal(true)}>
           + New goal
         </button>
       </div>
@@ -375,7 +375,7 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
           {g.goals.length === 0 && !showNewGoal && (
             <section className="panel text-center">
               <p className="text-sm font-bold">No shared goals yet</p>
-              <p className="mx-auto mt-1 max-w-sm text-xs text-[#8a9893]">Set a target and a deadline, and everyone in the group commits their share.</p>
+              <p className="mx-auto mt-1 max-w-sm text-xs text-[#8790AE]">Set a target and a deadline, and everyone in the group commits their share.</p>
               <button className={`${primaryBtn} mt-4`} onClick={() => setShowNewGoal(true)}>
                 Create the first goal
               </button>
@@ -406,9 +406,9 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-bold">
                       {m.display_name}
-                      {m.id === meId && <span className="font-normal text-[#8a9893]"> (you)</span>}
+                      {m.id === meId && <span className="font-normal text-[#8790AE]"> (you)</span>}
                     </p>
-                    <p className="text-[10px] text-[#8a9893]">
+                    <p className="text-[10px] text-[#8790AE]">
                       @{m.username} · {m.is_owner ? "Owner" : `Joined ${when(m.joined_at)}`}
                     </p>
                   </div>
@@ -419,7 +419,7 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
                   <Avatar person={i.person} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-bold">{i.person.display_name}</p>
-                    <p className="text-[10px] text-[#8a9893]">@{i.person.username} · Invited, hasn't joined yet</p>
+                    <p className="text-[10px] text-[#8790AE]">@{i.person.username} · Invited, hasn't joined yet</p>
                   </div>
                   {i.can_cancel && (
                     <button className={quietBtn} disabled={busy} onClick={() => run(() => api("POST", `/api/group-invites/${i.id}/decline`), `Cancelled the invite to ${i.person.display_name}.`)}>
@@ -430,10 +430,10 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
               ))}
             </div>
 
-            <div className="mt-5 border-t border-[#edf0ef] pt-4">
+            <div className="mt-5 border-t border-[#DADDF1] pt-4">
               <p className={fieldLabel}>Invite a friend</p>
               {g.invitable_friends.length === 0 ? (
-                <p className="text-[11px] text-[#8a9893]">All your friends are already here or invited. Add more on the Friends page.</p>
+                <p className="text-[11px] text-[#8790AE]">All your friends are already here or invited. Add more on the Friends page.</p>
               ) : (
                 <form
                   className="flex gap-2"
@@ -464,13 +464,13 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
             <p className="panel-title">Activity</p>
             <p className="panel-subtitle">Everything the group has done</p>
             <ol className="mt-4 space-y-3.5">
-              {g.activity.length === 0 && <li className="text-xs text-[#8a9893]">Nothing yet.</li>}
+              {g.activity.length === 0 && <li className="text-xs text-[#8790AE]">Nothing yet.</li>}
               {g.activity.map((a, i) => (
                 <li className="flex gap-3" key={i}>
-                  <span className={`mt-1.5 size-2 shrink-0 rounded-full ${a.kind === "contribution" ? "bg-[#2f8a6f]" : a.kind === "commit" ? "bg-[#9a6bff]" : a.kind === "leave" || a.kind === "decline" ? "bg-[#ef8a5f]" : "bg-[#c3cfca]"}`} />
+                  <span className={`mt-1.5 size-2 shrink-0 rounded-full ${a.kind === "contribution" ? "bg-[#FF8A5B]" : a.kind === "commit" ? "bg-[#9a6bff]" : a.kind === "leave" || a.kind === "decline" ? "bg-[#ef8a5f]" : "bg-[#C4CAE3]"}`} />
                   <div>
                     <p className="text-xs leading-5">{a.message}</p>
-                    <p className="text-[10px] text-[#8a9893]">{when(a.created_at)}</p>
+                    <p className="text-[10px] text-[#8790AE]">{when(a.created_at)}</p>
                   </div>
                 </li>
               ))}
@@ -480,7 +480,7 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
           <div className="text-center">
             {confirmLeave ? (
               <div className="flex items-center justify-center gap-2">
-                <span className="text-xs text-[#697975]">{g.members.length === 1 ? "You're the last member. Leaving deletes the group." : "Leave this group?"}</span>
+                <span className="text-xs text-[#6F789A]">{g.members.length === 1 ? "You're the last member. Leaving deletes the group." : "Leave this group?"}</span>
                 <button className={secondaryBtn} onClick={() => setConfirmLeave(false)}>
                   Stay
                 </button>
@@ -508,7 +508,7 @@ function GroupView({ groupId, meId, onBack }: { groupId: number; meId: number; o
 
 function BackLink({ onBack }: { onBack: () => void }) {
   return (
-    <button className="mb-4 text-xs font-bold text-[#41675c] hover:underline" onClick={onBack}>
+    <button className="mb-4 text-xs font-bold text-[#FF8A5B] hover:underline" onClick={onBack}>
       ← All groups
     </button>
   );
@@ -593,19 +593,19 @@ function GoalCard({
             <p className="text-lg font-bold tracking-[-0.025em]">{goal.title}</p>
             <Pill status={goal.status} />
           </div>
-          <p className="mt-0.5 text-[11px] text-[#8a9893]">
+          <p className="mt-0.5 text-[11px] text-[#8790AE]">
             Due {longDate(goal.deadline)} · {goal.days_left >= 0 ? `${goal.days_left} days left` : `${-goal.days_left} days ago`}
           </p>
         </div>
         <div className="text-right">
           <p className="text-[22px] font-bold tracking-[-0.04em]">{money(goal.total_saved)}</p>
-          <p className="text-[11px] text-[#8a9893]">of {money(goal.target)} · {goal.percent}%</p>
+          <p className="text-[11px] text-[#8790AE]">of {money(goal.target)} · {goal.percent}%</p>
         </div>
       </div>
 
       <div className="mt-4">
         <Bar expectedPercent={expectedPct} percent={goal.percent} tone={tone} />
-        <div className="mt-2 flex flex-wrap justify-between gap-2 text-[10px] text-[#8a9893]">
+        <div className="mt-2 flex flex-wrap justify-between gap-2 text-[10px] text-[#8790AE]">
           <span>The tick marks where the group should be by now: {money(goal.expected_by_now)}</span>
           <span>
             {committedCount} of {memberCount} committed · {money(goal.committed_total)} pledged
@@ -619,14 +619,14 @@ function GoalCard({
       </div>
 
       {/* Per-member accountability */}
-      <div className="mt-5 space-y-3 border-t border-[#edf0ef] pt-4">
+      <div className="mt-5 space-y-3 border-t border-[#DADDF1] pt-4">
         {goal.members.map((m) => (
           <div className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1.5 sm:grid-cols-[180px_1fr_auto]" key={m.person.id}>
             <div className="flex min-w-0 items-center gap-2.5">
               <Avatar person={m.person} size="size-8" />
               <span className="truncate text-xs font-bold">
                 {m.person.display_name.split(" ")[0]}
-                {m.person.id === meId && <span className="font-normal text-[#8a9893]"> (you)</span>}
+                {m.person.id === meId && <span className="font-normal text-[#8790AE]"> (you)</span>}
               </span>
             </div>
             <div className="order-3 col-span-2 sm:order-none sm:col-span-1">
@@ -637,24 +637,24 @@ function GoalCard({
                     percent={m.percent}
                     tone={m.status === "behind" ? "orange" : m.status === "complete" ? "purple" : "green"}
                   />
-                  <p className="mt-1 text-[10px] text-[#8a9893]">
+                  <p className="mt-1 text-[10px] text-[#8790AE]">
                     {money(m.saved)} of {money(m.share)} · should be at {money(m.expected_by_now)}
                   </p>
                 </>
               ) : (
-                <p className="text-[10px] text-[#8a9893]">Hasn't committed a share yet{m.saved > 0 ? ` (saved ${money(m.saved)})` : ""}</p>
+                <p className="text-[10px] text-[#8790AE]">Hasn't committed a share yet{m.saved > 0 ? ` (saved ${money(m.saved)})` : ""}</p>
               )}
             </div>
             <Pill status={m.status} />
           </div>
         ))}
         {goal.former_members_saved > 0 && (
-          <p className="text-[10px] text-[#8a9893]">Includes {money(goal.former_members_saved)} saved by people who have left the group.</p>
+          <p className="text-[10px] text-[#8790AE]">Includes {money(goal.former_members_saved)} saved by people who have left the group.</p>
         )}
       </div>
 
       {/* Your actions */}
-      <div className="mt-5 rounded-2xl bg-[#f5f8f7] p-4">
+      <div className="mt-5 rounded-2xl bg-[#F4F5FB] p-4">
         {!committed || editingShare ? (
           <form
             className="flex flex-wrap items-end gap-3"
@@ -669,7 +669,7 @@ function GoalCard({
           >
             <div className="min-w-[160px] flex-1">
               <p className="text-xs font-bold">{committed ? "Change your share" : "Are you in?"}</p>
-              <p className="text-[11px] text-[#697975]">
+              <p className="text-[11px] text-[#6F789A]">
                 {committed ? "Your progress will be measured against the new amount." : `Commit your share so the group knows you're in. An even split is ${money(goal.suggested_share)}.`}
               </p>
             </div>
@@ -704,7 +704,7 @@ function GoalCard({
           >
             <div className="min-w-[160px] flex-1">
               <p className="text-xs font-bold">Add money to this goal</p>
-              <p className="text-[11px] text-[#697975]">
+              <p className="text-[11px] text-[#6F789A]">
                 {funding?.linked ? (
                   <>
                     From <strong>{funding.nickname}</strong> · balance {money(funding.balance)}
@@ -717,7 +717,7 @@ function GoalCard({
                   </>
                 )}
                 Your share: {money(goal.my_share!)} ·{" "}
-                <button className="font-bold text-[#41675c] hover:underline" onClick={() => setEditingShare(true)} type="button">
+                <button className="font-bold text-[#FF8A5B] hover:underline" onClick={() => setEditingShare(true)} type="button">
                   change
                 </button>
               </p>
@@ -737,12 +737,12 @@ function GoalCard({
         )}
 
         {contributions.length > 0 && (
-          <div className="mt-4 border-t border-[#e3e9e6] pt-3">
+          <div className="mt-4 border-t border-[#DADDF1] pt-3">
             <p className={fieldLabel}>Your recent entries</p>
             {contributions.slice(0, 4).map((c) => (
               <div className="flex items-center justify-between py-1 text-[11px]" key={c.id}>
                 <span>
-                  <strong>{money(c.amount)}</strong> <span className="text-[#8a9893]">{c.note && `· ${c.note} `}· {when(c.created_at)}</span>
+                  <strong>{money(c.amount)}</strong> <span className="text-[#8790AE]">{c.note && `· ${c.note} `}· {when(c.created_at)}</span>
                 </span>
                 <button className={quietBtn} disabled={busy} onClick={() => run(() => api("DELETE", `/api/contributions/${c.id}`), `Took back ${money(c.amount)}. It's back in your bank balance.`)}>
                   Undo
@@ -757,7 +757,7 @@ function GoalCard({
         <div className="mt-3 text-right">
           {confirmDelete ? (
             <span className="inline-flex items-center gap-2">
-              <span className="text-[11px] text-[#697975]">Delete this goal and all its entries?</span>
+              <span className="text-[11px] text-[#6F789A]">Delete this goal and all its entries?</span>
               <button className={secondaryBtn} onClick={() => setConfirmDelete(false)}>
                 Keep
               </button>

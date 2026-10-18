@@ -12,18 +12,18 @@
 body {
   margin: 0;
   min-width: 320px;
-  background: #f5f7f8;
-  color: #14211d;
+  background: #fffaed;
+  color: #275992;
   font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
-/* In the base layer so Tailwind text-size classes on buttons still apply. */
-@layer base {
-  button,
-  select {
-    font: inherit;
-  }
+/* Same as the Figma design: buttons and dropdowns use the page font at its
+   normal size and weight. (Unlayered on purpose, so it wins over Tailwind's
+   text-size classes exactly like it does in the Figma file.) */
+button,
+select {
+  font: inherit;
 }
 
 button {
@@ -36,13 +36,13 @@ button {
   width: 38px;
   place-items: center;
   border-radius: 999px;
-  color: #51635d;
+  color: #5f698d;
   transition: 160ms ease;
 }
 
 .icon-button:hover {
-  background: #f1f5f3;
-  color: #193e34;
+  background: #e2e5f4;
+  color: #275992;
 }
 
 .nav-item {
@@ -52,7 +52,7 @@ button {
   gap: 10px;
   border-radius: 11px;
   padding: 10px 11px;
-  color: #6d7b77;
+  color: #275992;
   font-size: 10px;
   font-weight: 600;
   transition: 150ms ease;
@@ -63,28 +63,28 @@ button {
 }
 
 .nav-item:hover {
-  background: #f3f6f5;
-  color: #254d42;
+  background: #e2e5f4;
+  color: #275992;
 }
 
 .nav-item-active {
-  background: #e8f0ed;
-  color: #1d5748;
+  background: #e2e5f4;
+  color: #275992;
   font-weight: 700;
 }
 
 .metric-card {
   position: relative;
   min-height: 152px;
-  border: 1px solid #e0e6e4;
+  border: 1px solid #daddf1;
   border-radius: 18px;
-  background: white;
+  background: #fffdf7;
   padding: 20px;
   box-shadow: 0 2px 4px rgb(22 43 36 / 2%);
 }
 
 .eyebrow {
-  color: #7a8984;
+  color: #6f789a;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -107,9 +107,9 @@ button {
 }
 
 .panel {
-  border: 1px solid #e0e6e4;
+  border: 1px solid #daddf1;
   border-radius: 18px;
-  background: white;
+  background: #fffdf7;
   padding: 20px;
   box-shadow: 0 2px 4px rgb(22 43 36 / 2%);
 }
@@ -129,7 +129,7 @@ button {
 
 .panel-subtitle {
   margin-top: 4px;
-  color: #83908c;
+  color: #8790ae;
   font-size: 10px;
 }
 
@@ -138,8 +138,8 @@ button {
     to bottom,
     transparent 0,
     transparent calc(25% - 1px),
-    #edf1ef calc(25% - 1px),
-    #edf1ef 25%
+    #c4cae3 calc(25% - 1px),
+    #c4cae3 25%
   );
 }
 
