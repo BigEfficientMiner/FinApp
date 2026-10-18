@@ -219,7 +219,7 @@ function TopThree({ onOpen }: { onOpen: () => void }) {
     api<Board>("GET", "/api/budget/leaderboard").then(setBoard).catch(() => {});
   }, []);
   useEffect(load, [load]);
-  useLive(["budget", "money"], load);
+  useLive(["budget", "money", "friends", "groups"], load);
   const me = board?.entries.find((e) => e.is_me);
   return (
     <button className="panel w-full text-left transition hover:bg-[#F4F5FB]" onClick={onOpen} type="button">
