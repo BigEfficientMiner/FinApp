@@ -105,6 +105,8 @@ NEW_HISTORY_DAYS = 60
 MERCHANTS_FILE = Path(__file__).with_name("merchants.json")
 _merchant_lock = threading.Lock()
 _building: dict[int, str] = {}   # user_id -> "building" | "done" | "failed"
+_progress: dict[int, dict] = {}  # user_id -> {"done": n, "total": n} transactions written so far
+HISTORY_WORKERS = 8              # Nessie writes sent at once while filling in history
 
 ADDRESSES = [
     ("101", "University Ave", "Gainesville", "FL", "32601"),
@@ -135,7 +137,8 @@ def _fill_history(user_id: int, persona: dict, account_ids: list):
     try:
         end = date.today() - timedelta(days=1)
         demo_setup.build_history(persona, account_ids, _merchants(), user_id,
-                                 start=end - timedelta(days=NEW_HISTORY_DAYS), end=end)
+                                 start=end - timedelta(days=NEW_HISTORY_DAYS), end=end,
+                                 workers=HISTORY_WORKERS, progress=_progress.setdefault(user_id, {}))
         _building[user_id] = "done"
     except Exception as e:  # keep the account; just report that history didn't finish
         print(f"Building history for user {user_id} failed: {e}")
@@ -180,5 +183,6 @@ def create_bank(body: CreateIn, user: dict = Depends(current_user)):
 
 @router.get("/history-status")
 def history_status(user: dict = Depends(current_user)):
-    """Whether a newly opened bank's history is still being filled in."""
-    return {"status": _building.get(user["id"], "done")}
+    """Whether a newly opened bank's history is still being filled in, and how far along."""
+    p = _progress.get(user["id"], {})
+    return {"status": _building.get(user["id"], "done"), "done": p.get("done", 0), "total": p.get("total", 0)}

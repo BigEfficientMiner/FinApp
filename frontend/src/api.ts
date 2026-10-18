@@ -16,6 +16,7 @@ export function getToken(): string | null {
 }
 
 export function setToken(token: string | null) {
+  lastGood.clear(); // different user (or logged out): never show someone else's cached data
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);
     else localStorage.removeItem(TOKEN_KEY);
@@ -36,7 +37,33 @@ export function setUnauthorizedHandler(handler: () => void) {
   onUnauthorized = handler;
 }
 
-export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
+// ---------- Speed: show the last answer instantly, share identical requests ----------
+// Every successful GET is remembered, so switching back to a tab can draw right
+// away with `cached(path)` while a fresh copy loads. Identical GETs that are
+// already on their way (e.g. a poll and a tab switch) share one request.
+const lastGood = new Map<string, unknown>();
+const inFlight = new Map<string, Promise<unknown>>();
+
+export function cached<T>(path: string): T | undefined {
+  return lastGood.get(path) as T | undefined;
+}
+
+export function api<T>(method: string, path: string, body?: unknown): Promise<T> {
+  if (method !== "GET") return request<T>(method, path, body);
+  const running = inFlight.get(path);
+  if (running) return running as Promise<T>;
+  const token = getToken();
+  const p = request<T>(method, path)
+    .then((data) => {
+      if (getToken() === token) lastGood.set(path, data);
+      return data;
+    })
+    .finally(() => inFlight.delete(path));
+  inFlight.set(path, p);
+  return p;
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;

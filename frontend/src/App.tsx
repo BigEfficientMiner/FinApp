@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, getToken, setToken, setUnauthorizedHandler, type Me } from "./api";
+import { api, cached, getToken, setToken, setUnauthorizedHandler, type Me } from "./api";
 import Auth from "./Auth";
 import Friends, { initials as initialsOf } from "./Friends";
 import Groups from "./Groups";
-import Transactions from "./Transactions";
+import Transactions, { statementPath } from "./Transactions";
 import AccountsPage, { LinkBankForm } from "./LinkBank";
+import { SignInLoading } from "./Loading";
 
 type Customer = { id: string; first_name: string; last_name: string };
 type CategoryTotal = { name: string; amount: number; count: number; percent: number };
@@ -191,30 +192,56 @@ function donutGradient(categories: CategoryTotal[], total: number) {
   return `conic-gradient(${stops.join(", ")})`;
 }
 
+// start.bat opens the app with ?signout so every fresh launch begins at the login
+// screen instead of the last account used. Runs once, before the app draws: ends
+// the old session on the server (the request picks up the token right away),
+// forgets it here, and tidies the URL.
+{
+  const url = new URL(window.location.href);
+  if (url.searchParams.has("signout")) {
+    url.searchParams.delete("signout");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    if (getToken()) {
+      api("POST", "/api/auth/logout").catch(() => {});
+      setToken(null);
+    }
+  }
+}
+
 // ---------- Login gate ----------
 // Shows the login screen until there's a valid session, then the app.
 function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [checking, setChecking] = useState(true);
   const [startupError, setStartupError] = useState("");
+  // True right after logging in / creating a profile: show the loading screen while data preloads.
+  const [booting, setBooting] = useState(false);
 
-  const loadMe = useCallback(() => {
+  /** Resolves true when you're logged in. */
+  const loadMe = useCallback((): Promise<boolean> => {
     if (!getToken()) {
       setMe(null);
       setChecking(false);
-      return;
+      return Promise.resolve(false);
     }
-    api<Me>("GET", "/api/me")
+    return api<Me>("GET", "/api/me")
       .then((m) => {
         setMe(m);
         setStartupError("");
+        return true;
       })
       .catch((e) => {
         setMe(null);
         if (e.status === 0) setStartupError(e.message);
+        return false;
       })
       .finally(() => setChecking(false));
   }, []);
+
+  function loggedIn() {
+    setBooting(true);
+    loadMe().then((ok) => !ok && setBooting(false));
+  }
 
   useEffect(() => {
     setUnauthorizedHandler(() => setMe(null));
@@ -228,7 +255,7 @@ function App() {
   }
 
   if (checking) return <div className="min-h-screen bg-[#f5f7f8]" />;
-  if (!me)
+  if (!me && !booting)
     return (
       <>
         {startupError && (
@@ -236,10 +263,16 @@ function App() {
             {startupError}
           </p>
         )}
-        <Auth onLoggedIn={loadMe} />
+        <Auth onLoggedIn={loggedIn} />
       </>
     );
-  return <Shell me={me} onLogout={logout} onMeChanged={loadMe} />;
+  // The app draws underneath the loading screen, so it's ready when the screen fades out.
+  return (
+    <>
+      {me && <Shell me={me} onLogout={logout} onMeChanged={loadMe} />}
+      {booting && <SignInLoading me={me} onDone={() => setBooting(false)} />}
+    </>
+  );
 }
 
 // ---------- The app once logged in ----------
@@ -262,12 +295,17 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
       setData(null);
       return;
     }
-    setLoading(true);
+    const path = `/api/me/dashboard?period=${period}`;
+    const seen = cached<Dashboard>(path);
+    if (seen) setData(seen); // a period you've already viewed: show it now, refresh quietly
+    else setLoading(true);
     setError("");
-    api<Dashboard>("GET", `/api/me/dashboard?period=${period}`)
+    api<Dashboard>("GET", path)
       .then(setData)
       .catch((e) => setError(`Couldn't load your spending data (${e.message})`))
       .finally(() => setLoading(false));
+    // Preload the Insights tab's statement so it opens instantly (the server reuses the same bank data).
+    api("GET", statementPath("last_30_days")).catch(() => {});
     // Live: refresh quietly every few seconds while the dashboard is open.
     const timer = setInterval(() => {
       if (document.visibilityState !== "visible" || activeNavRef.current !== "Overview") return;
@@ -279,8 +317,11 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
   // Gemini insights: once per period (the server caches answers for the same numbers).
   const loadInsights = useCallback(() => {
     if (!linked) return;
-    setAiLoading(true);
-    api<InsightsResponse>("GET", `/api/me/insights?period=${period}`)
+    const path = `/api/me/insights?period=${period}`;
+    const seen = cached<InsightsResponse>(path);
+    if (seen) setAi(seen);
+    else setAiLoading(true);
+    api<InsightsResponse>("GET", path)
       .then(setAi)
       .catch((e) => setAi({ available: false, reason: e.message }))
       .finally(() => setAiLoading(false));
@@ -301,7 +342,6 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
   const initials = initialsOf(me.display_name) || "··";
   const total = data?.total ?? 0;
   const categories = data?.categories ?? [];
-  const transactions = data?.transactions ?? [];
   const top = data?.top_category ?? null;
   const points = data?.daily.points ?? [];
   const peak = points.reduce((best, p, i) => (p.amount > (points[best]?.amount ?? 0) ? i : best), 0);
@@ -311,6 +351,27 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const change = data?.change_percent ?? null;
   const labelIndexes = points.length ? [...new Set([0, 1, 2, 3, 4].map((k) => Math.round((k * (points.length - 1)) / 4)))] : [];
+
+  // Shared by Overview and Insights, so both pages stay on the same period.
+  const periodPicker = (
+    <label className="relative">
+      <span className="sr-only">Select reporting period</span>
+      <select
+        className="appearance-none rounded-xl border border-[#d8e0dd] bg-white py-2.5 pl-4 pr-10 text-xs font-bold text-[#31433e] shadow-sm outline-none focus:border-[#357866]"
+        onChange={(event) => setPeriod(event.target.value)}
+        value={period}
+      >
+        {PERIODS.map((p) => (
+          <option key={p.key} value={p.key}>
+            {p.label}
+          </option>
+        ))}
+      </select>
+      <span className="pointer-events-none absolute right-3 top-2.5 rotate-90 text-[#657771]">
+        <Icon name="chevron" size={16} />
+      </span>
+    </label>
+  );
 
   return (
     <div className="min-h-screen bg-[#f5f7f8] text-[#14211d]">
@@ -347,7 +408,6 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
           <nav className="flex w-full justify-around lg:flex-col lg:gap-1" aria-label="Main navigation">
             {[
               ["Overview", "grid"],
-              ["Transactions", "card"],
               ["Insights", "insights"],
               ["Friends", "users"],
               ["Groups", "flag"],
@@ -394,8 +454,26 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
               </div>
               <LinkBankForm onLinked={onMeChanged} />
             </>
-          ) : activeNav === "Transactions" ? (
-            <Transactions />
+          ) : activeNav === "Insights" ? (
+            <>
+              <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+                <div>
+                  <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#71817c]">Insights</p>
+                  <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">Your money, explained</h1>
+                  <p className="mt-1 text-sm text-[#697975]">What Gemini sees in your spending, plus every transaction behind it.</p>
+                </div>
+                {periodPicker}
+              </div>
+
+              <AiInsightsPanel ai={ai} loading={aiLoading} onRefresh={loadInsights} />
+              <p className="mt-3 text-center text-[10px] leading-4 text-[#8c9995]">
+                AI insights are generated by Gemini from your spending totals and are for education, not financial advice.
+              </p>
+
+              <div className="mt-10 border-t border-[#dde4e1] pt-8">
+                <Transactions embedded />
+              </div>
+            </>
           ) : (
           <>
           <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -406,23 +484,7 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
               <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">{greeting}, {firstName}</h1>
               <p className="mt-1 text-sm text-[#697975]">Here’s where your money went—and where it can take you.</p>
             </div>
-            <label className="relative">
-              <span className="sr-only">Select reporting period</span>
-              <select
-                className="appearance-none rounded-xl border border-[#d8e0dd] bg-white py-2.5 pl-4 pr-10 text-xs font-bold text-[#31433e] shadow-sm outline-none focus:border-[#357866]"
-                onChange={(event) => setPeriod(event.target.value)}
-                value={period}
-              >
-                {PERIODS.map((p) => (
-                  <option key={p.key} value={p.key}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-              <span className="pointer-events-none absolute right-3 top-2.5 rotate-90 text-[#657771]">
-                <Icon name="chevron" size={16} />
-              </span>
-            </label>
+            {periodPicker}
           </div>
 
           {error && (
@@ -571,43 +633,6 @@ function Shell({ me, onLogout, onMeChanged }: { me: Me; onLogout: () => void; on
               </div>
             </article>
           </section>
-
-          <AiInsightsPanel ai={ai} loading={aiLoading} onRefresh={loadInsights} />
-
-          <section className="panel !p-0">
-            <div className="panel-heading px-5 py-5 sm:px-6">
-              <div>
-                <p className="panel-title">Recent purchases</p>
-                <p className="panel-subtitle">Your latest card activity</p>
-              </div>
-              <button className="flex items-center gap-1 text-xs font-bold text-[#41675c]" onClick={() => setActiveNav("Transactions")}>View all <Icon name="chevron" size={14} /></button>
-            </div>
-            <div className="overflow-x-auto">
-              <div className="min-w-[580px]">
-                {transactions.length === 0 && (
-                  <p className="border-t border-[#edf0ef] px-5 py-6 text-xs text-[#8a9893] sm:px-6">No purchases in this period.</p>
-                )}
-                {transactions.map((transaction) => (
-                  <button className="grid w-full grid-cols-[1.8fr_1fr_0.8fr_0.7fr] items-center gap-4 border-t border-[#edf0ef] px-5 py-3.5 text-left transition hover:bg-[#fafcfb] sm:px-6" key={transaction.id}>
-                    <span className="flex items-center gap-3">
-                      <span className={`grid size-9 place-items-center rounded-xl text-xs font-extrabold ${styleFor(transaction.category).badge}`}>{transaction.merchant[0]}</span>
-                      <span>
-                        <span className="block text-xs font-bold">{transaction.merchant}</span>
-                        {transaction.description && <span className="block text-[10px] text-[#8a9893]">{transaction.description}</span>}
-                      </span>
-                    </span>
-                    <span className="text-xs text-[#6f7e79]">{transaction.category}</span>
-                    <span className="text-xs text-[#6f7e79]">{shortDate(transaction.date)}</span>
-                    <span className="text-right text-xs font-bold">{money(transaction.amount)}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          <p className="mt-5 text-center text-[10px] leading-4 text-[#8c9995]">
-            AI insights are generated by Gemini from your spending totals and are for education, not financial advice.
-          </p>
           </>
           )}
         </main>

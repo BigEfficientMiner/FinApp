@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { ConnectBankLoading } from "./Loading";
 
 const input =
   "w-full rounded-xl border border-[#d8e0dd] bg-white px-4 py-2.5 text-sm outline-none transition focus:border-[#357866]";
@@ -26,22 +27,25 @@ export function LinkBankForm({ onLinked }: { onLinked: () => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function submit(e: React.FormEvent) {
+  function submit(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true);
+    setBusy(true); // shows the "Connecting your bank" screen, which does the linking
     setError("");
-    try {
-      await api("POST", "/api/bank/link", { nessie_customer_id: customerId });
-      onLinked();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
   }
 
   return (
     <section className="panel mx-auto max-w-[560px]">
+      {busy && (
+        <ConnectBankLoading
+          connect={() => api("POST", "/api/bank/link", { nessie_customer_id: customerId.trim() })}
+          newAccount={false}
+          onDone={onLinked}
+          onError={(message) => {
+            setError(message);
+            setBusy(false);
+          }}
+        />
+      )}
       <div className="mb-1 grid size-11 place-items-center rounded-2xl bg-[#e7f1ed] text-[#276858]">
         <svg aria-hidden="true" fill="none" height="22" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24" width="22">
           <path d="m3 10 9-6 9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18" />
@@ -84,21 +88,24 @@ function OpenBankAccount({ onLinked }: { onLinked: () => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function open() {
-    setBusy(true);
+  function open() {
+    setBusy(true); // shows the "Connecting your bank" screen, which opens the account
     setError("");
-    try {
-      await api("POST", "/api/bank/create", { style });
-      onLinked();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
   }
 
   return (
     <div className="mt-6 border-t border-[#edf0ef] pt-5">
+      {busy && (
+        <ConnectBankLoading
+          connect={() => api("POST", "/api/bank/create", { style })}
+          newAccount
+          onDone={onLinked}
+          onError={(message) => {
+            setError(message);
+            setBusy(false);
+          }}
+        />
+      )}
       <p className="text-sm font-bold">Don't have a customer ID?</p>
       <p className="mt-1 text-xs text-[#697975]">Open a new Northstar bank account instead. We'll create it, link it, and fill in about two months of sample activity.</p>
       <div className="mt-4 grid gap-2 sm:grid-cols-3">

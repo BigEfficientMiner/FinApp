@@ -49,7 +49,7 @@ def statement(period: str = "last_30_days", account_id: str = "", user: dict = D
     start, end = _period_range(period, today)
 
     try:
-        customer = nessie.get_customer(customer_id)
+        customer = banking.customer(customer_id)
         ledger = banking.customer_ledger(customer_id)
     except nessie.NessieError as e:
         raise HTTPException(502, str(e))

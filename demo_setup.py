@@ -132,10 +132,39 @@ def stamp(d: date, hour: int = 15) -> str:
     return datetime.combine(d, time(hour), tzinfo=timezone.utc).isoformat(timespec="seconds")
 
 
-def build_history(p, accounts, merchants, user_id, start=None, end=None):
+def build_history(p, accounts, merchants, user_id, start=None, end=None, workers=1, progress=None):
     """Create a persona's transactions in Nessie, day by day, never going below $50.
-    start/end default to the demo window (about 3 months ending yesterday)."""
+    start/end default to the demo window (about 3 months ending yesterday).
+
+    workers > 1 sends that many Nessie writes at once (much faster; order doesn't
+    matter because balances are worked out from all transactions together).
+    progress, if given, is a dict kept up to date as {"done": n, "total": n}."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    count_lock = threading.Lock()
     start, end = start or START, end or END
+    pool = ThreadPoolExecutor(max_workers=workers) if workers > 1 else None
+    jobs = []
+    if progress is not None:
+        progress.update(done=0, total=0)
+
+    def _finished(_job):
+        if progress is not None:
+            with count_lock:
+                progress["done"] = progress.get("done", 0) + 1
+
+    def do(fn, *args, **kwargs):
+        """Run one Nessie write now, or queue it on the pool."""
+        if progress is not None:
+            progress["total"] = progress.get("total", 0) + 1
+        if pool is None:
+            fn(*args, **kwargs)
+            _finished(None)
+            return
+        job = pool.submit(fn, *args, **kwargs)
+        job.add_done_callback(_finished)
+        jobs.append(job)
+
     rng = random.Random(p["seed"])
     by_type = {t: aid for (t, _, _), aid in zip(p["accounts"], accounts)}
     account_names = {aid: nick for (_, nick, _), aid in zip(p["accounts"], accounts)}
@@ -155,12 +184,12 @@ def build_history(p, accounts, merchants, user_id, start=None, end=None):
         pay = p["pay"]
         if ("every" in pay and (day - start).days % pay["every"] == pay["first_offset"]) or \
            (day.day in pay.get("days_of_month", ())):
-            banking.deposit(checking, pay["amount"] * 100, pay["desc"], user_id=user_id, source="seed", when=when)
+            do(banking.deposit, checking, pay["amount"] * 100, pay["desc"], user_id=user_id, source="seed", when=when)
             balance[checking] += pay["amount"]; count += 1
 
         for dom, name, amount in p["bills"]:
             if day.day == dom and can_spend(checking, amount):
-                banking.create("bills", checking, {"status": "completed", "payee": name.split(" · ")[-1],
+                do(banking.create, "bills", checking, {"status": "completed", "payee": name.split(" · ")[-1],
                                "nickname": name, "payment_date": when, "recurring_date": dom,
                                "payment_amount": amount}, user_id=user_id, source="seed",
                                cents=round(amount * 100), description=name)
@@ -169,12 +198,12 @@ def build_history(p, accounts, merchants, user_id, start=None, end=None):
         for dom, to_type, amount, desc in p["transfers"]:
             if day.day == dom and to_type in by_type and can_spend(checking, amount):
                 to = by_type[to_type]
-                banking.transfer(checking, to, amount * 100, desc, account_names, user_id=user_id, source="seed", when=when)
+                do(banking.transfer, checking, to, amount * 100, desc, account_names, user_id=user_id, source="seed", when=when)
                 money_out(checking, amount * 100); balance[to] += amount; count += 1
 
         every, atm = p["atm"]
         if (day - start).days % every == every // 2 and can_spend(checking, atm):
-            banking.withdraw(checking, atm * 100, "ATM withdrawal", user_id=user_id, source="seed", when=when)
+            do(banking.withdraw, checking, atm * 100, "ATM withdrawal", user_id=user_id, source="seed", when=when)
             money_out(checking, atm * 100); count += 1
 
         for names, per_week, low, high, acct_type in p["spend"]:
@@ -183,10 +212,14 @@ def build_history(p, accounts, merchants, user_id, start=None, end=None):
                 cents = rng.randint(low * 100, high * 100)
                 aid = by_type.get(acct_type, checking)
                 if can_spend(aid, cents / 100):
-                    banking.purchase(aid, merchants[name], cents, rng.choice(NOTES[name]),
+                    do(banking.purchase, aid, merchants[name], cents, rng.choice(NOTES[name]),
                                      user_id=user_id, source="seed", when=when)
                     money_out(aid, cents); count += 1
         day += timedelta(days=1)
+    if pool is not None:
+        pool.shutdown(wait=True)
+        for job in jobs:
+            job.result()  # re-raise the first failure, if any
     return count, balance
 
 

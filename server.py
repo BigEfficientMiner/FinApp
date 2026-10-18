@@ -150,7 +150,7 @@ def dashboard(period: str = "this_month", user: dict = Depends(bank.require_bank
     """Spending dashboard for the logged-in user's linked bank profile."""
     customer_id = user["bank_link"]["nessie_customer_id"]
     try:
-        customer = nessie.get_customer(customer_id)
+        customer = banking.customer(customer_id)
         start, end, prev_start, prev_end = _period_range(period)
         ledger = banking.customer_ledger(customer_id)
         all_purchases = _customer_purchases(ledger)
