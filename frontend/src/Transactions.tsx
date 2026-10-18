@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "./api";
+import { api, cached } from "./api";
+
+/** The statement request for a period/account (App.tsx uses it to preload the default view). */
+export const statementPath = (period: string, accountId = "") =>
+  `/api/me/statement?period=${period}&account_id=${encodeURIComponent(accountId)}`;
 
 type Line = {
   id: string;
@@ -61,12 +65,14 @@ function toCsv(s: Statement) {
   return rows.map((r) => r.map(esc).join(",")).join("\r\n");
 }
 
-export default function Transactions() {
+// `embedded`: shown as a section inside another page (Insights) rather than as its own page.
+export default function Transactions({ embedded = false }: { embedded?: boolean }) {
   const [period, setPeriod] = useState("last_30_days");
   const [accountId, setAccountId] = useState("");
-  const [data, setData] = useState<Statement | null>(null);
+  // Start from the last statement we saw (instant when coming back to this tab).
+  const [data, setData] = useState<Statement | null>(() => cached<Statement>(statementPath("last_30_days")) ?? null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !cached(statementPath("last_30_days")));
   const [sims, setSims] = useState<Simulation[]>([]);
   const [simBusy, setSimBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -74,8 +80,13 @@ export default function Transactions() {
 
   const load = useCallback(
     (quiet = false) => {
-      if (!quiet) setLoading(true);
-      return api<Statement>("GET", `/api/me/statement?period=${period}&account_id=${encodeURIComponent(accountId)}`)
+      const path = statementPath(period, accountId);
+      if (!quiet) {
+        const seen = cached<Statement>(path);
+        if (seen) setData(seen); // show it now, refresh quietly
+        else setLoading(true);
+      }
+      return api<Statement>("GET", path)
         .then((next) => {
           setData((prev) => {
             // Briefly highlight lines that just appeared (live updates).
@@ -156,7 +167,11 @@ export default function Transactions() {
       <div className="mb-7 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
           <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#71817c]">Transactions</p>
-          <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">Bank statement</h1>
+          {embedded ? (
+            <h2 className="text-[22px] font-bold tracking-[-0.04em] sm:text-[26px]">Bank statement</h2>
+          ) : (
+            <h1 className="text-[28px] font-bold tracking-[-0.045em] sm:text-[34px]">Bank statement</h1>
+          )}
           <p className="mt-1 flex items-center gap-2 text-sm text-[#697975]">
             <span className="relative flex size-2">
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#2f8a6f] opacity-60" />

@@ -18,9 +18,15 @@ if not exist frontend\node_modules (
   popd
 )
 
+REM Free ports 8000 and 8443 in case an old copy is still running.
+for %%P in (8000 8443) do (
+  for /f "tokens=5" %%A in ('netstat -ano ^| findstr /R /C:":%%P .*LISTENING"') do taskkill /F /PID %%A >nul 2>&1
+)
+
 start "Northstar backend" cmd /k "venv\Scripts\python.exe server.py"
 start "Northstar frontend" cmd /k "cd frontend && npm.cmd run dev"
 
 echo Waiting for the app to start...
 timeout /t 6 /nobreak >nul
-start http://localhost:8443
+REM ?signout: start at the login screen, not signed in to whoever used it last.
+start "" "http://localhost:8443/?signout"

@@ -22,11 +22,17 @@ class NessieError(Exception):
     pass
 
 
+# One shared session keeps connections to Nessie open between calls, so each
+# request skips a fresh TLS handshake. Pool sized for banking.py's parallel reads.
+_session = requests.Session()
+_session.mount("https://", requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=32))
+
+
 def _request(method, path, body=None):
     if not API_KEY:
         raise NessieError("No API key found. Make sure your .env file contains NESSIE_API_KEY=your_key_here")
 
-    response = requests.request(
+    response = _session.request(
         method,
         f"{BASE_URL}{path}",
         params={"key": API_KEY},
